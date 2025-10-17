@@ -42,6 +42,25 @@
             height: auto;
             margin-bottom: 25px;
         }
+        #login-logos {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 18px;
+            margin-bottom: 20px;
+            width: 100%;    
+        }
+        .logo-box {
+        background: rgba(255,255,255,0.9);
+        padding: 8px 12px;
+        border-radius: 8px;
+        box-shadow: 0 4px 10px rgba(0,0,0,0.06);
+        }
+        .logo-box img {
+        height: 48px;
+        width: auto;
+        display: block;
+        }
 
         /* --- Container Principal --- */
         .container {
@@ -325,12 +344,30 @@
 <div class="container" id="main-container">
     
     <div id="login-section">
+        <div id="login-logos">
+            <div class="logo-box">
+                <img src="SENAI_logo_2024.png" alt="Logo Senai">
+            </div>
+            <div class="logo-box">
+                <img src="SAfe tools.png" alt="Minha Logo">
+            </div>
+        </div>
         <img src="https://cdn.fiemt.ind.br/style/imagens/logo/colorido/senai.png" alt="Logo SENAI CIMATEC" class="logo">
         <h1>Login do Sistema</h1>
         <input type="text" id="username" placeholder="Usuário" value="admin">
         <input type="password" id="password" placeholder="Senha" value="1234">
         <button onclick="handleLogin()">Entrar</button>
         <p id="login-error" style="color: red; margin-top: 15px;"></p>
+        <!-- Link e formulário de registro -->
+        <p id="register-link" onclick="toggleRegister()">Criar conta</p>
+        <div id="register-form" style="display:none; margin-top:20px; background:#f9f9f9; padding:20px; border-radius:8px; border:1px solid #ddd;">
+            <h2 style="font-size:1.2em; color:#005FAA; margin-bottom:10px;">Registrar Usuário</h2>
+            <input type="text" id="reg-username" placeholder="Novo usuário">
+            <input type="password" id="reg-password" placeholder="Senha">
+            <input type="password" id="reg-confirm" placeholder="Confirmar senha">
+            <button onclick="registerUser()">Cadastrar</button>
+            <p id="register-message" style="margin-top:10px; font-size:0.9em;"></p>
+        </div>
     </div>
 
     <div id="main-section">
@@ -759,6 +796,57 @@
         document.getElementById('main-container').style.boxShadow = 'none';
         document.getElementById('main-container').style.background = 'transparent';
     })();
+    // --- FUNÇÕES DE REGISTRO DE USUÁRIO ---
+    function toggleRegister() {
+        const form = document.getElementById('register-form');
+        form.style.display = form.style.display === 'block' ? 'none' : 'block';
+    }   
+
+    async function registerUser() {
+        const user = document.getElementById('reg-username').value.trim();
+        const pass = document.getElementById('reg-password').value.trim();
+        const confirm = document.getElementById('reg-confirm').value.trim();
+        const msg = document.getElementById('register-message');
+
+        msg.textContent = '';
+        msg.style.color = '';
+
+        if (!user || !pass || !confirm) {
+            msg.textContent = 'Preencha todos os campos.';
+            msg.style.color = 'red';
+            return;
+        }
+        if (pass !== confirm) {
+            msg.textContent = 'As senhas não coincidem.';
+            msg.style.color = 'red';
+            return;
+        }
+
+        try {
+            const res = await fetch('/users/register', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ username: user, password: pass })
+            });
+            const data = await res.json();
+
+            if (data.success) {
+                msg.textContent = data.message;
+                msg.style.color = 'green';
+                setTimeout(() => {
+                    document.getElementById('register-form').style.display = 'none';
+                    msg.textContent = '';
+                }, 2000);
+            } else {
+                msg.textContent = data.message || 'Erro ao cadastrar.';
+                msg.style.color = 'red';
+            }
+        } catch {
+            msg.textContent = 'Erro de conexão com o servidor.';
+            msg.style.color = 'red';
+        }
+}
+
 </script>
 
 </body>

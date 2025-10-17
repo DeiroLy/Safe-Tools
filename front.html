@@ -1,0 +1,765 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema de Ferramentas - SENAI CIMATEC</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+    
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <style>
+        /* --- Reset e Configurações Globais --- */
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Poppins', Arial, sans-serif;
+            background-color: #f8f9fa; /* Fundo cinza claro, como no exemplo */
+            color: #333;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            transition: all 0.3s ease;
+        }
+
+        /* Classe aplicada via JS após o login */
+        body.logged-in {
+            display: block;
+            justify-content: initial;
+            align-items: initial;
+            padding: 20px;
+        }
+        
+        .logo {
+            max-width: 300px;
+            height: auto;
+            margin-bottom: 25px;
+        }
+
+        /* --- Container Principal --- */
+        .container {
+            max-width: 1200px;
+            margin: auto;
+            background: transparent; 
+            padding: 0; 
+            border-radius: 12px;
+            box-shadow: none; 
+        }
+
+        /* --- Seção de Login (Permanece um card) --- */
+        #login-section {
+            display: block;
+            text-align: center;
+            max-width: 450px;
+            width: 100%;
+            padding: 40px;
+            border-radius: 12px;
+            background: #ffffff;
+            box-shadow: 0 4px 25px rgba(0, 0, 0, 0.1);
+            margin: auto; 
+        }
+
+        #login-section h1 {
+            font-weight: 600;
+            margin-bottom: 20px;
+        }
+        
+        #main-section {
+            display: none; 
+        }
+
+        /* --- Cabeçalho da Seção Principal --- */
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 20px 30px; 
+            margin-bottom: 20px;
+            border-bottom: 2px solid #f0f0f0;
+            background: #ffffff;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.06);
+        }
+
+        header .logo {
+            max-width: 200px; 
+            margin-bottom: 0;
+        }
+
+        header h1 {
+            font-weight: 600;
+            color: #005FAA; 
+        }
+        
+        h2 {
+            font-weight: 600;
+            color: #333;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #eee;
+            margin-bottom: 20px;
+        }
+        
+        h3 { 
+            font-weight: 600;
+            color: #005FAA;
+            margin-top: 15px;
+            margin-bottom: 10px;
+        }
+
+        /* --- Navegação por Abas --- */
+        nav {
+            margin-bottom: 25px;
+            border-bottom: 2px solid #ddd;
+            background: #ffffff;
+            border-radius: 12px;
+            padding: 0 10px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.06);
+        }
+
+        nav button {
+            padding: 12px 20px;
+            border: none;
+            border-bottom: 4px solid transparent;
+            background-color: transparent;
+            color: #555;
+            cursor: pointer;
+            margin-right: 5px;
+            font-size: 1em;
+            font-weight: 500;
+            transition: all 0.3s ease;
+        }
+
+        nav button:hover {
+            background-color: #f4f4f9;
+            color: #000;
+        }
+        
+        nav button.active {
+            font-weight: 600;
+            color: #005FAA; 
+            border-bottom-color: #005FAA; 
+        }
+
+        /* --- Conteúdo das Seções --- */
+        .content-section {
+            display: none;
+        }
+
+        .content-section.active {
+            display: block;
+        }
+        
+        /* --- ESTILO DE WIDGET --- */
+        .widget-card {
+            background: #ffffff;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 25px rgba(0, 0, 0, 0.08);
+            margin-top: 25px; 
+        }
+
+        /* Esconde o card da seção se ela não estiver ativa */
+        .content-section:not(.active) {
+            display: none !important;
+        }
+
+        /* --- Formulários (Inputs) --- */
+        input[type="text"],
+        input[type="password"] {
+            width: 100%;
+            padding: 12px 15px;
+            margin-bottom: 15px;
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            font-family: 'Poppins', sans-serif;
+            font-size: 1em;
+            transition: all 0.3s ease;
+        }
+
+        input[type="text"]:focus,
+        input[type="password"]:focus {
+            outline: none;
+            border-color: #005FAA;
+            box-shadow: 0 0 0 3px rgba(0, 95, 170, 0.15);
+        }
+
+        /* --- Botões --- */
+        button {
+            padding: 12px 25px;
+            border: none;
+            background-color: #005FAA; 
+            color: white;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 1em;
+            font-weight: 500;
+            transition: opacity 0.3s ease;
+        }
+
+        button:hover {
+            opacity: 0.85;
+        }
+
+        #cadastro-section button {
+            background-color: #28a745;
+        }
+        
+        /* --- Itens da Ferramenta (Catálogo) --- */
+        .tool-item {
+            background: #fdfdfd; 
+            border: 1px solid #e0e0e0;
+            padding: 20px;
+            margin-bottom: 15px;
+            border-radius: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+            transition: box-shadow 0.3s ease;
+        }
+        
+        .tool-item:hover {
+            box-shadow: 0 4px 10px rgba(0,0,0,0.08);
+        }
+        
+        .tool-item strong {
+            font-size: 1.1em;
+            color: #222;
+        }
+        
+        .tool-item small {
+            color: #777;
+        }
+
+        .tool-actions {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .tool-actions button {
+            padding: 8px 15px;
+            font-size: 0.9em;
+        }
+
+        /* Tags de Status */
+        .status {
+            font-weight: 600;
+            padding: 5px 12px;
+            border-radius: 16px;
+            color: white;
+            font-size: 0.9em;
+            margin-right: 10px;
+        }
+        
+        .status-Disponível { background-color: #28a745; }
+        .status-Em-uso { background-color: #ffc107; color: #333; }
+        .status-Emprestada { background-color: #dc3545; }
+        
+        .tool-item.Disponível { border-left: 5px solid #28a745; }
+        .tool-item.Em-uso { border-left: 5px solid #ffc107; }
+        .tool-item.Emprestada { border-left: 5px solid #dc3545; }
+
+        /* --- Tabela de Histórico --- */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+            font-size: 0.95em;
+        }
+
+        th, td {
+            padding: 14px;
+            border: 1px solid #ddd;
+            text-align: left;
+        }
+
+        th {
+            background-color: #f2f2f2;
+            font-weight: 600;
+        }
+        
+        tbody tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+
+        tbody tr:hover {
+            background-color: #f0f0f0;
+        }
+        
+        /* --- Seção de Devolução --- */
+        #return-section p {
+            font-size: 1.2em;
+            text-align: center;
+            padding: 40px;
+            background: #f0f8ff; 
+            border-radius: 8px;
+            border: 1px dashed #005FAA;
+            color: #005FAA;
+        }
+        
+        /* --- Layout do Dashboard --- */
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 30px;
+        }
+
+        .chart-container {
+            position: relative;
+            height: 350px; 
+            width: 100%;
+        }
+
+    </style>
+</head>
+<body>
+
+<div class="container" id="main-container">
+    
+    <div id="login-section">
+        <img src="https://cdn.fiemt.ind.br/style/imagens/logo/colorido/senai.png" alt="Logo SENAI CIMATEC" class="logo">
+        <h1>Login do Sistema</h1>
+        <input type="text" id="username" placeholder="Usuário" value="admin">
+        <input type="password" id="password" placeholder="Senha" value="1234">
+        <button onclick="handleLogin()">Entrar</button>
+        <p id="login-error" style="color: red; margin-top: 15px;"></p>
+    </div>
+
+    <div id="main-section">
+        <header>
+            <h1>Gerenciador de Ferramentas</h1>
+            <img src="https://cdn.fiemt.ind.br/style/imagens/logo/colorido/senai.png" alt="Logo SENAI CIMATEC" class="logo">
+        </header>
+        
+        <nav>
+            <button onclick="showSection('dashboard')" class="active">Dashboard</button>
+            <button onclick="showSection('catalog')">Catálogo</button>
+            <button onclick="showSection('cadastro')">Cadastro</button>
+            <button onclick="showSection('return')">Devolver Ferramenta</button>
+            <button onclick="showSection('history')">Histórico</button>
+        </nav>
+
+        <div id="dashboard-section" class="content-section widget-card active">
+            <h2>Visão Geral</h2>
+            <div class="dashboard-grid">
+                <div>
+                    <h3>Ferramentas por Status</h3>
+                    <div class="chart-container">
+                        <canvas id="chartStatus"></canvas>
+                    </div>
+                </div>
+                <div>
+                    <h3>Ferramentas por Categoria</h3>
+                    <div class="chart-container">
+                        <canvas id="chartCategory"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="catalog-section" class="content-section widget-card">
+            <h2>Catálogo de Ferramentas</h2>
+            <div id="tool-list"></div>
+        </div>
+
+        <div id="cadastro-section" class="content-section widget-card">
+            <h2>Cadastrar Nova Ferramenta</h2>
+            <p style="margin-bottom: 15px;">Para cadastrar, aproxime a nova ferramenta do leitor RFID e preencha os campos abaixo.</p>
+            <input type="text" id="new-tool-uid" placeholder="UID da Tag RFID">
+            <input type="text" id="new-tool-name" placeholder="Nome da Ferramenta">
+            <input type="text" id="new-tool-category" placeholder="Categoria (ex: Automação)">
+            <button onclick="registerTool()">Cadastrar Ferramenta</button>
+        </div>
+
+        <div id="return-section" class="content-section widget-card">
+            <h2>Devolver Ferramenta</h2>
+            <p>
+                Aproxime a ferramenta do leitor RFID para registar a devolução.
+            </p>
+        </div>
+
+        <div id="history-section" class="content-section widget-card">
+            <h2>Histórico de Movimentações</h2>
+            <table id="history-table">
+                <thead>
+                    <tr>
+                        <th>Data/Hora</th>
+                        <th>Usuário</th>
+                        <th>Ferramenta</th>
+                        <th>Ação</th>
+                        <th>Emprestado para</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+    </div>
+</div> <script>
+    // --- INÍCIO DA SIMULAÇÃO (MOCK) ---
+    const mockDatabase = {
+        tools: [
+            { id: 1, uid: 'A1-B2-C3-D4', name: 'Alicate de Corte', category: 'Ferramentas Manuais', status: 'Disponível' },
+            { id: 2, uid: 'E5-F6-G7-H8', name: 'Multímetro Digital', category: 'Medição', status: 'Disponível' },
+            { id: 3, uid: 'I9-J0-K1-L2', name: 'Arduino UNO', category: 'Automação', status: 'Em uso' },
+            { id: 4, uid: 'M3-N4-O5-P6', name: 'Kit Chaves de Fenda', category: 'Ferramentas Manuais', status: 'Emprestada' },
+            { id: 5, uid: 'Q7-R8-S9-T0', name: 'Raspberry Pi 4', category: 'Automação', status: 'Disponível' },
+            { id: 6, uid: 'U1-V2-W3-X4', name: 'Osciloscópio', category: 'Medição', status: 'Disponível' },
+        ],
+        logs: [
+            { id: 1, timestamp: new Date(Date.now() - 3600000).toISOString(), username: 'admin', name: 'Arduino UNO', action: 'Retirada (Uso)', borrower_name: null, borrower_class: null },
+            { id: 2, timestamp: new Date(Date.now() - 7200000).toISOString(), username: 'admin', name: 'Kit Chaves de Fenda', action: 'Empréstimo', borrower_name: 'Ana Silva', borrower_class: 'Técnico 1A' }
+        ]
+    };
+    let currentUser = 'admin'; 
+    
+    let chartStatusInstance = null;
+    let chartCategoryInstance = null;
+
+    function handleLogin() {
+        const username = document.getElementById('username').value;
+        const errorP = document.getElementById('login-error');
+
+        if (!username) {
+            errorP.textContent = 'Por favor, insira um usuário.';
+            return;
+        }
+        currentUser = username; 
+
+        document.body.classList.add('logged-in'); 
+        document.getElementById('login-section').style.display = 'none';
+        
+        document.getElementById('main-container').style.padding = '0';
+        document.getElementById('main-container').style.boxShadow = 'none';
+        document.getElementById('main-container').style.background = 'transparent';
+        
+        document.getElementById('main-section').style.display = 'block';
+        
+        showSection('dashboard');
+        loadHistory(); 
+    }
+
+    function showSection(sectionId) {
+        document.querySelectorAll('.content-section').forEach(sec => sec.classList.remove('active'));
+        document.querySelectorAll('nav button').forEach(btn => btn.classList.remove('active'));
+        
+        document.getElementById(`${sectionId}-section`).classList.add('active');
+        document.querySelector(`nav button[onclick="showSection('${sectionId}')"]`).classList.add('active');
+
+        if (sectionId === 'dashboard') loadDashboard();
+        if (sectionId === 'catalog') loadTools();
+        if (sectionId === 'history') loadHistory();
+    }
+
+    function loadDashboard() {
+        // 1. Processar dados para os gráficos
+        const statusData = { labels: [], counts: [], colors: [] };
+        const categoryData = { labels: [], counts: [], colors: [] };
+
+        const statusMap = {
+            'Disponível': '#28a745', // Verde
+            'Em uso': '#ffc107',    // Amarelo
+            'Emprestada': '#dc3545' // Vermelho
+        };
+
+        const categoryColors = [
+            '#005FAA', '#00C4D3', '#FFC107', '#DC3545', '#6C757D', '#20c997' // Mais cores para categorias
+        ];
+        let categoryColorIndex = 0;
+
+        const rawStatusCounts = { 'Disponível': 0, 'Em uso': 0, 'Emprestada': 0 };
+        const rawCategoryCounts = {};
+
+        mockDatabase.tools.forEach(tool => {
+            rawStatusCounts[tool.status]++;
+            if (!rawCategoryCounts[tool.category]) {
+                rawCategoryCounts[tool.category] = 0;
+            }
+            rawCategoryCounts[tool.category]++;
+        });
+
+        // Preencher statusData
+        for (const status in rawStatusCounts) {
+            if (rawStatusCounts[status] > 0) { // Apenas adiciona status que possuem ferramentas
+                statusData.labels.push(status);
+                statusData.counts.push(rawStatusCounts[status]);
+                statusData.colors.push(statusMap[status]);
+            }
+        }
+
+        // Preencher categoryData
+        for (const category in rawCategoryCounts) {
+            categoryData.labels.push(category);
+            categoryData.counts.push(rawCategoryCounts[category]);
+            categoryData.colors.push(categoryColors[categoryColorIndex % categoryColors.length]);
+            categoryColorIndex++;
+        }
+
+
+        // 2. Renderizar Gráfico de Status (Barra)
+        const ctxStatus = document.getElementById('chartStatus').getContext('2d');
+        if (chartStatusInstance) {
+            chartStatusInstance.destroy();
+        }
+        
+        chartStatusInstance = new Chart(ctxStatus, {
+            type: 'bar',
+            data: {
+                labels: statusData.labels,
+                datasets: [{
+                    label: 'Número de Ferramentas',
+                    data: statusData.counts,
+                    backgroundColor: statusData.colors,
+                    borderColor: '#fff',
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        display: false // Não precisa de legenda separada para barras únicas
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        title: {
+                            display: true,
+                            text: 'Número de Ferramentas'
+                        },
+                        ticks: {
+                            precision: 0 // Apenas números inteiros
+                        }
+                    },
+                    x: {
+                        title: {
+                            display: true,
+                            text: 'Status'
+                        }
+                    }
+                }
+            }
+        });
+
+        // 3. Renderizar Gráfico de Categoria (Barra)
+        const ctxCategory = document.getElementById('chartCategory').getContext('2d');
+        if (chartCategoryInstance) {
+            chartCategoryInstance.destroy();
+        }
+
+        chartCategoryInstance = new Chart(ctxCategory, {
+            type: 'bar',
+            data: {
+                labels: categoryData.labels,
+                datasets: [{
+                    label: 'Número de Ferramentas',
+                    data: categoryData.counts,
+                    backgroundColor: categoryData.colors,
+                    borderColor: '#fff',
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        display: false 
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        title: {
+                            display: true,
+                            text: 'Número de Ferramentas'
+                        },
+                        ticks: {
+                            precision: 0 
+                        }
+                    },
+                    x: {
+                        title: {
+                            display: true,
+                            text: 'Categoria'
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+
+    function loadTools() {
+        const toolList = document.getElementById('tool-list');
+        toolList.innerHTML = 'Carregando...';
+        
+        setTimeout(() => {
+            const tools = mockDatabase.tools;
+            toolList.innerHTML = '';
+            
+            const categories = {};
+            tools.forEach(tool => {
+                if (!categories[tool.category]) categories[tool.category] = [];
+                categories[tool.category].push(tool);
+            });
+
+            for (const category in categories) {
+                let categoryHtml = `<h3>${category}</h3>`;
+                categories[category].forEach(tool => {
+                    const statusClass = tool.status.replace(' ', '-');
+                    categoryHtml += `
+                        <div class="tool-item ${statusClass}">
+                            <div>
+                                <strong>${tool.name}</strong><br>
+                                <small>UID: ${tool.uid}</small>
+                            </div>
+                            <div class="tool-actions">
+                                <span class="status status-${statusClass}">${tool.status}</span>
+                                ${tool.status === 'Disponível' ? `
+                                    <button style="background-color:#005FAA" onclick="updateToolStatus(${tool.id}, 'Em uso')">Usar</button>
+                                    <button style="background-color:#005FAA" onclick="borrowTool(${tool.id})">Emprestar</button>
+                                    <button style="background-color:#dc3545" onclick="removerFerramenta(${tool.id})">Remover</button>
+                                ` : ''}
+                            </div>
+                        </div>
+                    `;
+                });
+                toolList.innerHTML += categoryHtml;
+            }
+        }, 300); 
+    }
+
+    function updateToolStatus(id, status, borrower_name = null, borrower_class = null) {
+        const tool = mockDatabase.tools.find(t => t.id === id);
+        if (tool) {
+            tool.status = status;
+            
+            const action = (status === 'Em uso') ? 'Retirada (Uso)' : (status === 'Emprestada') ? 'Empréstimo' : 'Devolução';
+            addLog(tool.name, action, borrower_name, borrower_class);
+            
+            loadTools(); 
+            // Recarrega o dashboard para que os gráficos sejam atualizados
+            if (document.getElementById('dashboard-section').classList.contains('active')) {
+                loadDashboard();
+            }
+        }
+    }
+
+    function borrowTool(id) {
+        const name = prompt("Nome do aluno/pessoa:");
+        if (!name) return;
+        const turma = prompt("Turma:");
+        if (!turma) return;
+        updateToolStatus(id, 'Emprestada', name, turma);
+    }
+
+    function removerFerramenta(id) {
+        if (!confirm("Tem certeza que deseja remover esta ferramenta?")) return;
+        
+        const index = mockDatabase.tools.findIndex(t => t.id === id);
+        if (index > -1) {
+            const tool = mockDatabase.tools.splice(index, 1)[0]; 
+            addLog(tool.name, 'Removida', null, null);
+            alert(`Ferramenta "${tool.name}" removida.`);
+            loadTools();
+            if (document.getElementById('dashboard-section').classList.contains('active')) {
+                loadDashboard();
+            }
+        }
+    }
+
+    function registerTool() {
+        const uid = document.getElementById('new-tool-uid').value;
+        const name = document.getElementById('new-tool-name').value;
+        const category = document.getElementById('new-tool-category').value;
+
+        if (!uid || !name || !category) {
+            alert('Por favor, preencha todos os campos.');
+            return;
+        }
+
+        const newId = mockDatabase.tools.length > 0 ? Math.max(...mockDatabase.tools.map(t => t.id)) + 1 : 1;
+        const newTool = {
+            id: newId,
+            uid: uid,
+            name: name,
+            category: category,
+            status: 'Disponível'
+        };
+        mockDatabase.tools.push(newTool);
+        
+        addLog(newTool.name, 'Cadastro', null, null);
+        alert(`Ferramenta "${name}" cadastrada com sucesso!`);
+        
+        document.getElementById('new-tool-uid').value = '';
+        document.getElementById('new-tool-name').value = '';
+        document.getElementById('new-tool-category').value = '';
+        
+        showSection('catalog'); 
+        // Recarrega o dashboard para que os gráficos sejam atualizados
+        if (document.getElementById('dashboard-section').classList.contains('active')) {
+            loadDashboard();
+        }
+    }
+
+    function loadHistory() {
+        const historyBody = document.querySelector('#history-table tbody');
+        historyBody.innerHTML = '<tr><td colspan="5">Carregando...</td></tr>';
+
+        setTimeout(() => {
+            const logs = mockDatabase.logs.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp)); 
+            historyBody.innerHTML = '';
+            
+            if (logs.length === 0) {
+                historyBody.innerHTML = '<tr><td colspan="5">Nenhum histórico encontrado.</td></tr>';
+                return;
+            }
+            
+            logs.forEach(log => {
+                historyBody.innerHTML += `
+                    <tr>
+                        <td>${new Date(log.timestamp).toLocaleString('pt-BR')}</td>
+                        <td>${log.username}</td>
+                        <td>${log.name}</td>
+                        <td>${log.action}</td>
+                        <td>${log.borrower_name ? `${log.borrower_name} (${log.borrower_class})` : 'N/A'}</td>
+                    </tr>
+                `;
+            });
+        }, 300);
+    }
+    
+    function addLog(toolName, action, borrowerName, borrowerClass) {
+        const newLogId = mockDatabase.logs.length > 0 ? Math.max(...mockDatabase.logs.map(l => l.id)) + 1 : 1;
+        mockDatabase.logs.push({
+            id: newLogId,
+            timestamp: new Date().toISOString(),
+            username: currentUser,
+            name: toolName,
+            action: action,
+            borrower_name: borrowerName,
+            borrower_class: borrowerClass
+        });
+        loadHistory(); 
+    }
+    
+    // Ajuste inicial para o container de login
+    (function() {
+        document.getElementById('main-container').style.padding = '0';
+        document.getElementById('main-container').style.boxShadow = 'none';
+        document.getElementById('main-container').style.background = 'transparent';
+    })();
+</script>
+
+</body>
+</html>

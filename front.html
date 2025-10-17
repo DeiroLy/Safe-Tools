@@ -57,9 +57,17 @@
         box-shadow: 0 4px 10px rgba(0,0,0,0.06);
         }
         .logo-box img {
-        height: 48px;
         width: auto;
         display: block;
+        }
+        .logo-box img:not(.brand-logo) {
+        height: 48px;
+        }
+        .brand-logo {
+        height: 200px;
+        max-width: 100%;
+        width: auto;
+        display: block; 
         }
 
         /* --- Container Principal --- */
@@ -95,11 +103,12 @@
         }
 
         /* --- Cabeçalho da Seção Principal --- */
-        header {
+        #main-header {
+            position: relative;
             display: flex;
             justify-content: space-between;
             align-items: center;
-            padding: 20px 30px; 
+            padding: 20px 30px;
             margin-bottom: 20px;
             border-bottom: 2px solid #f0f0f0;
             background: #ffffff;
@@ -107,29 +116,44 @@
             box-shadow: 0 4px 15px rgba(0, 0, 0, 0.06);
         }
 
-        header .logo {
-            max-width: 200px; 
-            margin-bottom: 0;
+        #main-header .header-left { display:flex; align-items:center; }
+        .header-logo {
+            height: 52px;
+            width: auto;
+            display: block;
         }
 
-        header h1 {
-            font-weight: 600;
-            color: #005FAA; 
-        }
-        
-        h2 {
-            font-weight: 600;
-            color: #333;
-            padding-bottom: 10px;
-            border-bottom: 1px solid #eee;
-            margin-bottom: 20px;
-        }
-        
-        h3 { 
+        .header-title {
+            position: absolute;
+            left: 50%;
+            transform: translateX(-50%);
+            margin: 0;
             font-weight: 600;
             color: #005FAA;
-            margin-top: 15px;
-            margin-bottom: 10px;
+            font-size: 1.4rem;
+            text-align: center;
+            pointer-events: none;
+        }
+
+        .header-right .logo-right {
+            height: 48px;
+            width: auto;
+            display: block;
+        }
+
+        @media (max-width: 720px) {
+            .header-title {
+                position: static;
+                transform: none;
+                margin: 0 10px;
+            }
+            #main-header {
+                flex-direction: column;
+                gap: 10px;
+                align-items: center;
+                text-align: center;
+            }
+            .header-left, .header-right { order: 0; }
         }
 
         /* --- Navegação por Abas --- */
@@ -336,6 +360,32 @@
             height: 350px; 
             width: 100%;
         }
+        html, body {
+            height: 100%;
+        }
+
+        body {
+            background-color: #f8f9fa; /* fallback */
+            background-image: url('blurry-gradient-haikei.svg');
+            background-repeat: no-repeat;
+            background-position: center center;
+            background-attachment: fixed;
+            background-size: cover;
+        }
+
+        /* garante que o wrapper principal fique transparente sobre o background */
+        .container,
+        #main-container {
+            background: transparent;
+        }
+
+        /* mantém os cartões/caixas brancas como estão */
+        .widget-card,
+        .login-box,
+        .logo-box,
+        #login-section {
+            background-color: #ffffff;
+        }
 
     </style>
 </head>
@@ -346,17 +396,14 @@
     <div id="login-section">
         <div id="login-logos">
             <div class="logo-box">
-                <img src="SENAI_logo_2024.png" alt="Logo Senai">
-            </div>
-            <div class="logo-box">
-                <img src="SAfe tools.png" alt="Minha Logo">
+                <img src="SAfe tools.png" alt="Minha Logo" class="brand-logo">
             </div>
         </div>
         <img src="https://cdn.fiemt.ind.br/style/imagens/logo/colorido/senai.png" alt="Logo SENAI CIMATEC" class="logo">
         <h1>Login do Sistema</h1>
-        <input type="text" id="username" placeholder="Usuário" value="admin">
-        <input type="password" id="password" placeholder="Senha" value="1234">
-        <button onclick="handleLogin()">Entrar</button>
+        <input type="text" id="username" placeholder="Usuário">
+        <input type="password" id="password" placeholder="Senha">
+        <button type="button" id="login-button" onclick="handleLogin()">Entrar</button>
         <p id="login-error" style="color: red; margin-top: 15px;"></p>
         <!-- Link e formulário de registro -->
         <p id="register-link" onclick="toggleRegister()">Criar conta</p>
@@ -369,12 +416,19 @@
             <p id="register-message" style="margin-top:10px; font-size:0.9em;"></p>
         </div>
     </div>
+<div id="main-section">
 
-    <div id="main-section">
-        <header>
-            <h1>Gerenciador de Ferramentas</h1>
-            <img src="https://cdn.fiemt.ind.br/style/imagens/logo/colorido/senai.png" alt="Logo SENAI CIMATEC" class="logo">
-        </header>
+    <header id="main-header">
+        <div class="header-left">
+            <img src="SAfe tools.png" alt="Minha Logo" class="header-logo">
+        </div>
+
+        <h1 class="header-title">Gerenciador de Ferramentas</h1>
+
+        <div class="header-right">
+            <img src="https://cdn.fiemt.ind.br/style/imagens/logo/colorido/senai.png" alt="Logo SENAI CIMATEC" class="logo-right">
+        </div>
+    </header>
         
         <nav>
             <button onclick="showSection('dashboard')" class="active">Dashboard</button>
@@ -438,8 +492,10 @@
                 <tbody></tbody>
             </table>
         </div>
-    </div>
-</div> <script>
+    </div> <!-- fecha #main-section -->
+</div> <!-- fecha #main-container -->
+
+<script>
     // --- INÍCIO DA SIMULAÇÃO (MOCK) ---
     const mockDatabase = {
         tools: [
@@ -455,44 +511,90 @@
             { id: 2, timestamp: new Date(Date.now() - 7200000).toISOString(), username: 'admin', name: 'Kit Chaves de Fenda', action: 'Empréstimo', borrower_name: 'Ana Silva', borrower_class: 'Técnico 1A' }
         ]
     };
-    let currentUser = 'admin'; 
+    let currentUser = null; 
     
     let chartStatusInstance = null;
     let chartCategoryInstance = null;
 
-    function handleLogin() {
-        const username = document.getElementById('username').value;
-        const errorP = document.getElementById('login-error');
+    function showSection(sectionId) {
+        // desativa todas as seções
+        document.querySelectorAll('.content-section').forEach(sec => sec.classList.remove('active'));
+        // ativa a seção solicitada
+        const secEl = document.getElementById(sectionId + '-section');
+        if (secEl) secEl.classList.add('active');
 
-        if (!username) {
-            errorP.textContent = 'Por favor, insira um usuário.';
+        // atualiza botão ativo na nav
+        document.querySelectorAll('nav button').forEach(btn => btn.classList.remove('active'));
+        const navBtn = Array.from(document.querySelectorAll('nav button'))
+            .find(b => b.getAttribute('onclick') && b.getAttribute('onclick').includes(`showSection('${sectionId}')`));
+        if (navBtn) navBtn.classList.add('active');
+
+        // carregamentos específicos (garantir reflow antes de criar gráficos)
+        if (sectionId === 'dashboard') {
+            // permite ao browser recalcular layout antes de desenhar os charts
+            requestAnimationFrame(() => {
+                loadDashboard();
+            });
+        } else if (sectionId === 'catalog') {
+            loadTools();
+        } else if (sectionId === 'history') {
+            loadHistory();
+        }
+}
+    function handleLogin() {
+        const userEl = document.getElementById('username');
+        const passEl = document.getElementById('password');
+        const errorP = document.getElementById('login-error');
+        const loginBtn = document.getElementById('login-button');
+
+        const username = (userEl.value || '').trim();
+        const password = passEl.value || '';
+
+        errorP.textContent = '';
+
+        if (!username || !password) {
+            errorP.textContent = 'Por favor, insira usuário e senha.';
             return;
         }
-        currentUser = username; 
 
-        document.body.classList.add('logged-in'); 
-        document.getElementById('login-section').style.display = 'none';
-        
-        document.getElementById('main-container').style.padding = '0';
-        document.getElementById('main-container').style.boxShadow = 'none';
-        document.getElementById('main-container').style.background = 'transparent';
-        
-        document.getElementById('main-section').style.display = 'block';
-        
-        showSection('dashboard');
-        loadHistory(); 
-    }
+        loginBtn.disabled = true;
+        const prevText = loginBtn.textContent;
+        loginBtn.textContent = 'Entrando...';
 
-    function showSection(sectionId) {
-        document.querySelectorAll('.content-section').forEach(sec => sec.classList.remove('active'));
-        document.querySelectorAll('nav button').forEach(btn => btn.classList.remove('active'));
-        
-        document.getElementById(`${sectionId}-section`).classList.add('active');
-        document.querySelector(`nav button[onclick="showSection('${sectionId}')"]`).classList.add('active');
-
-        if (sectionId === 'dashboard') loadDashboard();
-        if (sectionId === 'catalog') loadTools();
-        if (sectionId === 'history') loadHistory();
+        fetch('/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, password })
+        })
+        .then(async res => {
+            loginBtn.disabled = false;
+            loginBtn.textContent = prevText;
+            const data = await res.json().catch(() => null);
+            if (!res.ok) {
+                const msg = (data && data.message) ? data.message : 'Erro no login.';
+                errorP.textContent = msg;
+                return;
+            }
+            if (data && data.success) {
+                currentUser = username;
+                document.body.classList.add('logged-in');
+                document.getElementById('login-section').style.display = 'none';
+                document.getElementById('main-container').style.padding = '0';
+                document.getElementById('main-container').style.boxShadow = 'none';
+                document.getElementById('main-container').style.background = 'transparent';
+                document.getElementById('main-section').style.display = 'block';
+                showSection('dashboard');
+                loadHistory();
+            } else {
+                errorP.textContent = (data && data.message) ? data.message : 'Credenciais inválidas.';
+            }
+        })
+        .catch(err => {
+            loginBtn.disabled = false;
+            loginBtn.textContent = prevText;
+            console.error(err);
+            errorP.textContent = 'Erro de conexão. Tente novamente.';
+        });
     }
 
     function loadDashboard() {
@@ -653,7 +755,7 @@
             for (const category in categories) {
                 let categoryHtml = `<h3>${category}</h3>`;
                 categories[category].forEach(tool => {
-                    const statusClass = tool.status.replace(' ', '-');
+                    const statusClass = tool.status.replace(/ /g, '-')
                     categoryHtml += `
                         <div class="tool-item ${statusClass}">
                             <div>
@@ -846,6 +948,7 @@
             msg.style.color = 'red';
         }
 }
+
 
 </script>
 

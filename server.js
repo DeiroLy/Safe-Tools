@@ -76,35 +76,52 @@ const db = new sqlite3.Database('./ferramentas.db', (err) => {
 
 // Rota de Login
 app.post('/login', (req, res) => {
-    const { username, password } = req.body;
-    if (!username || !password)
+    const username = (req.body.username || '').trim();
+    const password = req.body.password || '';
+
+    if (!username || !password) {
         return res.status(400).json({ success: false, message: 'Usuário e senha obrigatórios.' });
+    }
 
     db.get(`SELECT * FROM users WHERE username = ?`, [username], (err, user) => {
         if (err) return res.status(500).json({ success: false, message: 'Erro no servidor.' });
         if (!user) return res.status(401).json({ success: false, message: 'Usuário não encontrado.' });
 
-        const valid = bcrypt.compareSync(password, user.password);
+        const storedHash = user.password || '';
+
+        // tenta comparar com bcrypt; se storedHash não for hash, permite comparação direta (fallback)
+        let valid = false;
+        try {
+            valid = bcrypt.compareSync(password, storedHash);
+        } catch (e) {
+            valid = (password === storedHash);
+        }
+
         if (!valid) return res.status(401).json({ success: false, message: 'Senha incorreta.' });
 
-        res.json({ success: true, message: 'Login bem-sucedido!' });
+        // login bem-sucedido
+        return res.json({ success: true, message: 'Login bem-sucedido.' });
     });
 });
-
 // Rota para registrar novo usuário
 app.post('/users/register', (req, res) => {
-    const { username, password } = req.body;
-    if (!username || !password)
-        return res.status(400).json({ success: false, message: 'Preencha usuário e senha.' });
+    const username = (req.body.username || '').trim();
+    const password = req.body.password || '';
+
+    if (!username || !password) {
+        return res.status(400).json({ success: false, message: 'Usuário e senha obrigatórios.' });
+    }
 
     db.get(`SELECT id FROM users WHERE username = ?`, [username], (err, row) => {
-        if (err) return res.status(500).json({ success: false, message: 'Erro no banco.' });
+        if (err) return res.status(500).json({ success: false, message: 'Erro no servidor.' });
         if (row) return res.status(409).json({ success: false, message: 'Usuário já existe.' });
 
         const hash = bcrypt.hashSync(password, 10);
-        db.run(`INSERT INTO users (username, password) VALUES (?, ?)`, [username, hash], (err) => {
-            if (err) return res.status(500).json({ success: false, message: 'Erro ao criar usuário.' });
-            res.json({ success: true, message: 'Usuário cadastrado com sucesso!' });
+        db.run(`INSERT INTO users (username, password) VALUES (?, ?)`, [username, hash], function(insertErr) {
+            if (insertErr) {
+                return res.status(500).json({ success: false, message: 'Erro ao cadastrar usuário.' });
+            }
+            return res.json({ success: true, message: 'Usuário registrado com sucesso.' });
         });
     });
 });

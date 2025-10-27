@@ -496,23 +496,9 @@
 </div> <!-- fecha #main-container -->
 
 <script>
-    // --- INÍCIO DA SIMULAÇÃO (MOCK) ---
-    const mockDatabase = {
-        tools: [
-            { id: 1, uid: 'A1-B2-C3-D4', name: 'Alicate de Corte', category: 'Ferramentas Manuais', status: 'Disponível' },
-            { id: 2, uid: 'E5-F6-G7-H8', name: 'Multímetro Digital', category: 'Medição', status: 'Disponível' },
-            { id: 3, uid: 'I9-J0-K1-L2', name: 'Arduino UNO', category: 'Automação', status: 'Em uso' },
-            { id: 4, uid: 'M3-N4-O5-P6', name: 'Kit Chaves de Fenda', category: 'Ferramentas Manuais', status: 'Emprestada' },
-            { id: 5, uid: 'Q7-R8-S9-T0', name: 'Raspberry Pi 4', category: 'Automação', status: 'Disponível' },
-            { id: 6, uid: 'U1-V2-W3-X4', name: 'Osciloscópio', category: 'Medição', status: 'Disponível' },
-        ],
-        logs: [
-            { id: 1, timestamp: new Date(Date.now() - 3600000).toISOString(), username: 'admin', name: 'Arduino UNO', action: 'Retirada (Uso)', borrower_name: null, borrower_class: null },
-            { id: 2, timestamp: new Date(Date.now() - 7200000).toISOString(), username: 'admin', name: 'Kit Chaves de Fenda', action: 'Empréstimo', borrower_name: 'Ana Silva', borrower_class: 'Técnico 1A' }
-        ]
-    };
+// --- CONFIGURAÇÃO DE CONEXÃO COM O BACKEND ---
+    const API_URL = "https://safe-tools.onrender.com"; 
     let currentUser = null; 
-    
     let chartStatusInstance = null;
     let chartCategoryInstance = null;
 
@@ -741,42 +727,43 @@
     function loadTools() {
         const toolList = document.getElementById('tool-list');
         toolList.innerHTML = 'Carregando...';
-        
-        setTimeout(() => {
-            const tools = mockDatabase.tools;
-            toolList.innerHTML = '';
-            
-            const categories = {};
-            tools.forEach(tool => {
-                if (!categories[tool.category]) categories[tool.category] = [];
-                categories[tool.category].push(tool);
-            });
 
-            for (const category in categories) {
-                let categoryHtml = `<h3>${category}</h3>`;
-                categories[category].forEach(tool => {
-                    const statusClass = tool.status.replace(/ /g, '-')
-                    categoryHtml += `
-                        <div class="tool-item ${statusClass}">
-                            <div>
-                                <strong>${tool.name}</strong><br>
-                                <small>UID: ${tool.uid}</small>
-                            </div>
-                            <div class="tool-actions">
-                                <span class="status status-${statusClass}">${tool.status}</span>
-                                ${tool.status === 'Disponível' ? `
-                                    <button style="background-color:#005FAA" onclick="updateToolStatus(${tool.id}, 'Em uso')">Usar</button>
-                                    <button style="background-color:#005FAA" onclick="borrowTool(${tool.id})">Emprestar</button>
-                                    <button style="background-color:#dc3545" onclick="removerFerramenta(${tool.id})">Remover</button>
-                                ` : ''}
-                            </div>
-                        </div>
-                    `;
+        fetch(`${API_URL}/tools`)
+            .then(res => res.json())
+            .then(tools => {
+                toolList.innerHTML = '';
+                const categories = {};
+                tools.forEach(tool => {
+                    if (!categories[tool.category]) categories[tool.category] = [];
+                    categories[tool.category].push(tool);
                 });
-                toolList.innerHTML += categoryHtml;
-            }
-        }, 300); 
+
+                for (const category in categories) {
+                    let categoryHtml = `<h3>${category}</h3>`;
+                    categories[category].forEach(tool => {
+                        const statusClass = tool.status.replace(/ /g, '-');
+                        categoryHtml += `
+                            <div class="tool-item ${statusClass}">
+                                <div>
+                                    <strong>${tool.name}</strong><br>
+                                    <small>UID: ${tool.uid}</small>
+                                </div>
+                                <div class="tool-actions">
+                                    <span class="status status-${statusClass}">${tool.status}</span>
+                                    <button style="background-color:#dc3545" onclick="removerFerramenta(${tool.id})">Remover</button>
+                                </div>
+                            </div>
+                        `;
+                    });
+                    toolList.innerHTML += categoryHtml;
+                }
+            })
+            .catch(err => {
+                console.error(err);
+                toolList.innerHTML = '<p style="color:red;">Erro ao carregar ferramentas.</p>';
+            });
     }
+
 
     function updateToolStatus(id, status, borrower_name = null, borrower_class = null) {
         const tool = mockDatabase.tools.find(t => t.id === id);
@@ -804,52 +791,50 @@
 
     function removerFerramenta(id) {
         if (!confirm("Tem certeza que deseja remover esta ferramenta?")) return;
-        
-        const index = mockDatabase.tools.findIndex(t => t.id === id);
-        if (index > -1) {
-            const tool = mockDatabase.tools.splice(index, 1)[0]; 
-            addLog(tool.name, 'Removida', null, null);
-            alert(`Ferramenta "${tool.name}" removida.`);
-            loadTools();
-            if (document.getElementById('dashboard-section').classList.contains('active')) {
-                loadDashboard();
-            }
-        }
+
+        fetch(`${API_URL}/tools/${id}`, { method: 'DELETE' })
+            .then(res => res.json())
+            .then(data => {
+                alert(data.message);
+                if (data.success) loadTools();
+            })
+            .catch(err => {
+                console.error(err);
+                alert('Erro ao remover ferramenta.');
+            });
     }
 
     function registerTool() {
-        const uid = document.getElementById('new-tool-uid').value;
-        const name = document.getElementById('new-tool-name').value;
-        const category = document.getElementById('new-tool-category').value;
+        const uid = document.getElementById('new-tool-uid').value.trim();
+        const name = document.getElementById('new-tool-name').value.trim();
+        const category = document.getElementById('new-tool-category').value.trim();
 
         if (!uid || !name || !category) {
             alert('Por favor, preencha todos os campos.');
             return;
         }
 
-        const newId = mockDatabase.tools.length > 0 ? Math.max(...mockDatabase.tools.map(t => t.id)) + 1 : 1;
-        const newTool = {
-            id: newId,
-            uid: uid,
-            name: name,
-            category: category,
-            status: 'Disponível'
-        };
-        mockDatabase.tools.push(newTool);
-        
-        addLog(newTool.name, 'Cadastro', null, null);
-        alert(`Ferramenta "${name}" cadastrada com sucesso!`);
-        
-        document.getElementById('new-tool-uid').value = '';
-        document.getElementById('new-tool-name').value = '';
-        document.getElementById('new-tool-category').value = '';
-        
-        showSection('catalog'); 
-        // Recarrega o dashboard para que os gráficos sejam atualizados
-        if (document.getElementById('dashboard-section').classList.contains('active')) {
-            loadDashboard();
-        }
+        fetch(`${API_URL}/tools/register`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ uid, name, category })
+        })
+            .then(res => res.json())
+            .then(data => {
+                alert(data.message);
+                if (data.success) {
+                    document.getElementById('new-tool-uid').value = '';
+                    document.getElementById('new-tool-name').value = '';
+                    document.getElementById('new-tool-category').value = '';
+                    loadTools();
+                }
+            })
+            .catch(err => {
+                console.error(err);
+                alert('Erro ao conectar com o servidor.');
+            });
     }
+
 
     function loadHistory() {
         const historyBody = document.querySelector('#history-table tbody');

@@ -750,6 +750,12 @@
                                 </div>
                                 <div class="tool-actions">
                                     <span class="status status-${statusClass}">${tool.status}</span>
+                                    ${tool.status === 'Disponível' ? `
+                                        <button onclick="updateToolStatus(${tool.id}, 'Em uso')">Usar</button>
+                                        <button onclick="borrowTool(${tool.id})">Emprestar</button>
+                                    ` : tool.status === 'Em uso' ? `
+                                        <button onclick="returnTool('${tool.uid}')">Devolver</button>
+                                    ` : ''}
                                     <button style="background-color:#dc3545" onclick="removerFerramenta(${tool.id})">Remover</button>
                                 </div>
                             </div>
@@ -766,25 +772,45 @@
 
 
     function updateToolStatus(id, status, borrower_name = null, borrower_class = null) {
-        const tool = mockDatabase.tools.find(t => t.id === id);
-        if (tool) {
-            tool.status = status;
-            
-            const action = (status === 'Em uso') ? 'Retirada (Uso)' : (status === 'Emprestada') ? 'Empréstimo' : 'Devolução';
-            addLog(tool.name, action, borrower_name, borrower_class);
-            
-            loadTools(); 
-            // Recarrega o dashboard para que os gráficos sejam atualizados
+        fetch(`${API_URL}/tools/${id}/status`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status, borrower_name, borrower_class })
+        })
+        .then(res => res.json())
+        .then(data => {
+            alert(data.message);
+            loadTools();
             if (document.getElementById('dashboard-section').classList.contains('active')) {
                 loadDashboard();
             }
-        }
+            loadHistory();
+        })
+        .catch(err => console.error('Erro ao atualizar status:', err));
     }
 
+    function returnTool(uid) {
+        fetch(`${API_URL}/tools/return`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ uid })
+        })
+        .then(res => res.json())
+        .then(data => {
+            alert(data.message);
+            loadTools();
+            if (document.getElementById('dashboard-section').classList.contains('active')) {
+                loadDashboard();
+            }
+            loadHistory();
+        })
+        .catch(err => console.error('Erro ao devolver ferramenta:', err));
+    }
+    
     function borrowTool(id) {
         const name = prompt("Nome do aluno/pessoa:");
         if (!name) return;
-        const turma = prompt("Turma:");
+        const turma = prompt("Turma ou Setor:");
         if (!turma) return;
         updateToolStatus(id, 'Emprestada', name, turma);
     }

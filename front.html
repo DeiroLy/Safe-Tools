@@ -583,8 +583,7 @@
         });
     }
 
-    function loadDashboard() {
-        // 1. Processar dados para os gráficos
+    async function loadDashboard() {
         const statusData = { labels: [], counts: [], colors: [] };
         const categoryData = { labels: [], counts: [], colors: [] };
 
@@ -595,133 +594,102 @@
         };
 
         const categoryColors = [
-            '#005FAA', '#00C4D3', '#FFC107', '#DC3545', '#6C757D', '#20c997' // Mais cores para categorias
+            '#005FAA', '#00C4D3', '#FFC107', '#DC3545', '#6C757D', '#20c997'
         ];
         let categoryColorIndex = 0;
 
         const rawStatusCounts = { 'Disponível': 0, 'Em uso': 0, 'Emprestada': 0 };
         const rawCategoryCounts = {};
 
-        mockDatabase.tools.forEach(tool => {
-            rawStatusCounts[tool.status]++;
-            if (!rawCategoryCounts[tool.category]) {
-                rawCategoryCounts[tool.category] = 0;
-            }
-            rawCategoryCounts[tool.category]++;
-        });
+        try {
+            // Busca as ferramentas reais do banco
+            const res = await fetch(`${API_URL}/tools`);
+            const tools = await res.json();
 
-        // Preencher statusData
-        for (const status in rawStatusCounts) {
-            if (rawStatusCounts[status] > 0) { // Apenas adiciona status que possuem ferramentas
-                statusData.labels.push(status);
-                statusData.counts.push(rawStatusCounts[status]);
-                statusData.colors.push(statusMap[status]);
-            }
-        }
+            // Conta quantas por status e categoria
+            tools.forEach(tool => {
+                if (rawStatusCounts[tool.status] !== undefined) {
+                    rawStatusCounts[tool.status]++;
+                }
+                if (tool.category) {
+                    rawCategoryCounts[tool.category] = (rawCategoryCounts[tool.category] || 0) + 1;
+                }
+            });
 
-        // Preencher categoryData
-        for (const category in rawCategoryCounts) {
-            categoryData.labels.push(category);
-            categoryData.counts.push(rawCategoryCounts[category]);
-            categoryData.colors.push(categoryColors[categoryColorIndex % categoryColors.length]);
-            categoryColorIndex++;
-        }
-
-
-        // 2. Renderizar Gráfico de Status (Barra)
-        const ctxStatus = document.getElementById('chartStatus').getContext('2d');
-        if (chartStatusInstance) {
-            chartStatusInstance.destroy();
-        }
-        
-        chartStatusInstance = new Chart(ctxStatus, {
-            type: 'bar',
-            data: {
-                labels: statusData.labels,
-                datasets: [{
-                    label: 'Número de Ferramentas',
-                    data: statusData.counts,
-                    backgroundColor: statusData.colors,
-                    borderColor: '#fff',
-                    borderWidth: 1
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: {
-                        display: false // Não precisa de legenda separada para barras únicas
-                    }
-                },
-                scales: {
-                    y: {
-                        beginAtZero: true,
-                        title: {
-                            display: true,
-                            text: 'Número de Ferramentas'
-                        },
-                        ticks: {
-                            precision: 0 // Apenas números inteiros
-                        }
-                    },
-                    x: {
-                        title: {
-                            display: true,
-                            text: 'Status'
-                        }
-                    }
+            // Preenche statusData
+            for (const status in rawStatusCounts) {
+                if (rawStatusCounts[status] > 0) {
+                    statusData.labels.push(status);
+                    statusData.counts.push(rawStatusCounts[status]);
+                    statusData.colors.push(statusMap[status]);
                 }
             }
-        });
 
-        // 3. Renderizar Gráfico de Categoria (Barra)
-        const ctxCategory = document.getElementById('chartCategory').getContext('2d');
-        if (chartCategoryInstance) {
-            chartCategoryInstance.destroy();
-        }
+            // Preenche categoryData
+            for (const category in rawCategoryCounts) {
+                categoryData.labels.push(category);
+                categoryData.counts.push(rawCategoryCounts[category]);
+                categoryData.colors.push(categoryColors[categoryColorIndex % categoryColors.length]);
+                categoryColorIndex++;
+            }
 
-        chartCategoryInstance = new Chart(ctxCategory, {
-            type: 'bar',
-            data: {
-                labels: categoryData.labels,
-                datasets: [{
-                    label: 'Número de Ferramentas',
-                    data: categoryData.counts,
-                    backgroundColor: categoryData.colors,
-                    borderColor: '#fff',
-                    borderWidth: 1
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: {
-                        display: false 
-                    }
+            // Renderizar gráfico de Status
+            const ctxStatus = document.getElementById('chartStatus').getContext('2d');
+            if (chartStatusInstance) chartStatusInstance.destroy();
+            chartStatusInstance = new Chart(ctxStatus, {
+                type: 'bar',
+                data: {
+                    labels: statusData.labels,
+                    datasets: [{
+                        label: 'Número de Ferramentas',
+                        data: statusData.counts,
+                        backgroundColor: statusData.colors,
+                        borderColor: '#fff',
+                        borderWidth: 1
+                    }]
                 },
-                scales: {
-                    y: {
-                        beginAtZero: true,
-                        title: {
-                            display: true,
-                            text: 'Número de Ferramentas'
-                        },
-                        ticks: {
-                            precision: 0 
-                        }
-                    },
-                    x: {
-                        title: {
-                            display: true,
-                            text: 'Categoria'
-                        }
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        y: { beginAtZero: true, ticks: { precision: 0 } },
+                        x: { title: { display: true, text: 'Status' } }
                     }
                 }
-            }
-        });
+            });
+
+            // Renderizar gráfico de Categoria
+            const ctxCategory = document.getElementById('chartCategory').getContext('2d');
+            if (chartCategoryInstance) chartCategoryInstance.destroy();
+            chartCategoryInstance = new Chart(ctxCategory, {
+                type: 'bar',
+                data: {
+                    labels: categoryData.labels,
+                    datasets: [{
+                        label: 'Número de Ferramentas',
+                        data: categoryData.counts,
+                        backgroundColor: categoryData.colors,
+                        borderColor: '#fff',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        y: { beginAtZero: true, ticks: { precision: 0 } },
+                        x: { title: { display: true, text: 'Categoria' } }
+                    }
+                }
+            });
+
+        } catch (err) {
+            console.error('Erro ao carregar dashboard:', err);
+        }
     }
+
 
 
     function loadTools() {
@@ -862,19 +830,20 @@
     }
 
 
-    function loadHistory() {
+    async function loadHistory() {
         const historyBody = document.querySelector('#history-table tbody');
         historyBody.innerHTML = '<tr><td colspan="5">Carregando...</td></tr>';
 
-        setTimeout(() => {
-            const logs = mockDatabase.logs.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp)); 
+        try {
+            const res = await fetch(`${API_URL}/logs`);
+            const logs = await res.json();
             historyBody.innerHTML = '';
-            
-            if (logs.length === 0) {
+
+            if (!logs || logs.length === 0) {
                 historyBody.innerHTML = '<tr><td colspan="5">Nenhum histórico encontrado.</td></tr>';
                 return;
             }
-            
+
             logs.forEach(log => {
                 historyBody.innerHTML += `
                     <tr>
@@ -882,12 +851,16 @@
                         <td>${log.username}</td>
                         <td>${log.name}</td>
                         <td>${log.action}</td>
-                        <td>${log.borrower_name ? `${log.borrower_name} (${log.borrower_class})` : 'N/A'}</td>
+                        <td>${log.borrower_name ? `${log.borrower_name} (${log.borrower_class || ''})` : '-'}</td>
                     </tr>
                 `;
             });
-        }, 300);
+        } catch (err) {
+            console.error('Erro ao carregar histórico:', err);
+            historyBody.innerHTML = '<tr><td colspan="5">Erro ao carregar histórico.</td></tr>';
+        }
     }
+
     
     function addLog(toolName, action, borrowerName, borrowerClass) {
         const newLogId = mockDatabase.logs.length > 0 ? Math.max(...mockDatabase.logs.map(l => l.id)) + 1 : 1;

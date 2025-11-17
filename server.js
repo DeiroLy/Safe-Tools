@@ -208,6 +208,71 @@ app.get('/arduino/status', (req, res) => {
     }
 });
 
+// --- API ACTION ---
+// ===============================================================
+app.get('/api_action', (req, res) => {
+    res.setHeader("Content-Type", "text/plain");
+
+    const uid = (req.query.uid || "").trim().toUpperCase();
+    const acao = (req.query.acao || "").trim(); // retirar | devolver
+    const codigo = (req.query.codigo || "").trim(); // código gerado no Arduino
+
+    if (!uid || !acao) {
+        return res.send("error: missing parameters");
+    }
+
+    console.log("📥 Recebido do Arduino:", uid, acao, codigo);
+
+    // 1) Procurar ferramenta pelo UID
+    db.get("SELECT id, name, status FROM tools WHERE uid = ?", [uid], (err, tool) => {
+        if (err) {
+            console.error(err);
+            return res.send("error: db");
+        }
+
+        if (!tool) {
+            // Se ferramenta não existe → criar automaticamente
+            db.run(
+                "INSERT INTO tools (uid, name, category, status) VALUES (?, ?, ?, ?)",
+                [uid, codigo || ("Ferramenta " + uid), "N/D", "Disponível"],
+                function (err) {
+                    if (err) return res.send("error: insert");
+
+                    tool = { id: this.lastID, name: codigo };
+                    console.log("🆕 Ferramenta criada automaticamente:", uid);
+                    processarAcao(tool.id);
+                }
+            );
+        } else {
+            processarAcao(tool.id);
+        }
+    });
+
+    // 2) Processar retirar/devolver
+    function processarAcao(tool_id) {
+        if (acao === "retirar") {
+            db.run("UPDATE tools SET status = 'Em uso' WHERE id = ?", [tool_id]);
+            db.run(
+                "INSERT INTO logs (tool_id, user_id, action, borrower_name, borrower_class) VALUES (?, ?, ?, ?, ?)",
+                [tool_id, 1, "retirada", null, null]
+            );
+            console.log(" Retirada registrada para:", uid);
+            return res.send("ok");
+        }
+
+        if (acao === "devolver") {
+            db.run("UPDATE tools SET status = 'Disponível' WHERE id = ?", [tool_id]);
+            db.run(
+                "INSERT INTO logs (tool_id, user_id, action, borrower_name, borrower_class) VALUES (?, ?, ?, ?, ?)",
+                [tool_id, 1, "devolucao", null, null]
+            );
+            console.log(" Devolução registrada para:", uid);
+            return res.send("ok");
+        }
+
+        return res.send("error: invalid action");
+    }
+});
 // --- INICIAR SERVIDOR ---
 app.listen(PORT, () => {
     console.log(`Servidor rodando na porta ${PORT}`);

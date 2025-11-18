@@ -957,19 +957,20 @@ async function loadCategories() {
     }
 }
 
-// startScan() — inicia o modo CADASTRO no servidor e começa polling por placeholder
+let currentScanModeId = null;
+
 async function startScan() {
+    const sel = document.getElementById('new-tool-category'); // ajuste ID se diferente
+    const category = sel ? sel.value : '';
+
     document.getElementById('scan-status').textContent = 'Aguardando tag...';
     document.getElementById('start-scan-btn').disabled = true;
-    scanStartTime = Date.now();
-    currentPlaceholderId = null;
 
-    // 1) pede ao servidor que ative o modo 'cadastrar'
     try {
         const res = await fetch(`${API_URL}/api_set_mode`, {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ mode: 'cadastrar' })
+            body: JSON.stringify({ mode: 'cadastrar', category })
         });
         const json = await res.json();
         if (!json.ok) {
@@ -977,19 +978,22 @@ async function startScan() {
             document.getElementById('start-scan-btn').disabled = false;
             document.getElementById('scan-status').textContent = 'Erro iniciar';
             return;
-        }
-        } catch (err) {
-            console.error('startScan error', err);
-            alert('Erro de rede ao iniciar escaneamento.');
-            document.getElementById('start-scan-btn').disabled = false;
-            document.getElementById('scan-status').textContent = 'Erro rede';
-            return;
-        }
-
-    // 2) checa imediatamente e depois periodicamente
-    pollForPlaceholder();
-    scanTimer = setInterval(pollForPlaceholder, scanPollingInterval);
     }
+
+    // Guarda o mode_id para uso (opcional)
+        currentScanModeId = json.mode_id || null;
+
+    // começa polling por placeholder (pode já existir)
+        pollForPlaceholder();
+        scanTimer = setInterval(pollForPlaceholder, scanPollingInterval);
+    } catch (err) {
+        console.error('startScan error', err);
+        alert('Erro de rede ao iniciar escaneamento.');
+        document.getElementById('start-scan-btn').disabled = false;
+        document.getElementById('scan-status').textContent = 'Erro rede';
+        return;
+    }
+}
 
 
 
@@ -997,34 +1001,38 @@ async function startScan() {
 // Implementação do endpoint no server deve buscar ferramenta criada com nome padrão ou category 'N/D'
 async function pollForPlaceholder() {
     try {
-    // endpoint para buscar último placeholder (veja abaixo como criar no server)
-    const res = await fetch(`${API_URL}/api_last_placeholder`);
-    if (!res.ok) return;
-    const json = await res.json();
-    // espera um objeto { found: true/false, id, uid, name, category }
-    if (json && json.found) {
-      // preenche campos e habilita salvar
-        document.getElementById('new-tool-uid').value = json.uid || '';
-        document.getElementById('new-tool-name').value = json.name && json.name.startsWith('Ferramenta-') ? '' : (json.name || '');
-        document.getElementById('new-tool-category').value = json.category || '';
-        currentPlaceholderId = json.id;
-        document.getElementById('scan-status').textContent = `Tag detectada: ${json.uid}`;
-      // para o polling
-        clearInterval(scanTimer);
-        scanTimer = null;
-        document.getElementById('start-scan-btn').disabled = false;
-        return;
+        const res = await fetch(`${API_URL}/api_last_placeholder`);
+        const json = await res.json();
+        if (!json.found) {
+        // nada criado ainda
+            return;
+        }
+        const ph = json.placeholder;
+        // se o placeholder já tem uid preenchido, auto preencher o form
+        if (ph && ph.uid) {
+        // preencher campo UID no form
+            const uidField = document.getElementById('new-tool-uid');
+            if (uidField) uidField.value = ph.uid;
+
+            // preencher nome com padrão (opcional)
+            const nameField = document.getElementById('new-tool-name');
+            if (nameField) nameField.value = ph.name || '';
+
+            // se quiser preencher code:
+            // const codeField = document.getElementById('new-tool-code'); // se existir
+            // if (codeField) codeField.value = ph.code || '';
+
+            // para finalizar polling
+            clearInterval(scanTimer);
+            document.getElementById('start-scan-btn').disabled = false;
+            document.getElementById('scan-status').textContent = 'Tag detectada';
         }
     } catch (err) {
-        console.error('Poll error', err);
-    }
-
-    // timeout
-    if (Date.now() - scanStartTime > scanTimeoutMs) {
-        cancelScan();
-        document.getElementById('scan-status').textContent = 'Tempo esgotado. Tente novamente.';
+        console.error('pollForPlaceholder err', err);
     }
 }
+
+
 
 // Salva (atualiza) o placeholder criado pelo Arduino
 async function saveRegisteredTool() {

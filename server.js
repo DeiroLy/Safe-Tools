@@ -277,12 +277,12 @@ app.get('/api_action', (req, res) => {
 // --- GET /api_categories  -> retorna lista de categorias ---
 app.get('/api_categories', (req, res) => {
     db.all("SELECT id, name FROM categories ORDER BY name COLLATE NOCASE", [], (err, rows) => {
-    if (err) {
-        console.error(err);
-        return res.status(500).json({ error: 'db_error' });
-    }
-    res.json({ categories: rows });
-    });
+        if (err) {
+            console.error("api_categories err:" err);
+            return res.status(500).json({ error: 'db_error' });
+        }
+        res.json({ categories: rows });
+        });
 });
 
 // --- POST /api_categories -> cria nova categoria (admin) ---
@@ -453,6 +453,62 @@ app.put('/api_tools/:id', express.json(), (req, res) => {
         if (this.changes === 0) return res.status(404).json({ error: 'not_found' });
         return res.json({ success: true, changes: this.changes });
     });
+});
+
+// --- POST /api_set_mode  (site passa mode: 'retirar' | 'devolver' | 'idle')
+app.post('/api_set_mode', express.json(), (req, res) => {
+    const mode = (req.body.mode || '').trim();
+    const tool_id = req.body.tool_id ? parseInt(req.body.tool_id) : null;
+    const user_id = req.body.user_id ? parseInt(req.body.user_id) : null;
+
+    if (!['retirar','devolver','idle'].includes(mode)) {
+        return res.status(400).json({ error: 'invalid_mode' });
+    }
+
+    db.run("INSERT INTO modes (mode, tool_id, user_id) VALUES (?, ?, ?)",
+        [mode, tool_id, user_id],
+        function(err) {
+        if (err) {
+            console.error('api_set_mode err:', err);
+            return res.status(500).json({ error: 'db_error' });
+        }
+        return res.json({ ok: true, mode_id: this.lastID, mode, tool_id, user_id });
+    }
+    );
+});
+
+// --- GET /api_current_mode  (Arduino consulta frequentemente)
+app.get('/api_current_mode', (req, res) => {
+    db.get("SELECT id, mode, tool_id, user_id, created_at FROM modes ORDER BY id DESC LIMIT 1", [], (err, row) => {
+        if (err) {
+            console.error('api_current_mode err:', err);
+            return res.status(500).json({ error: 'db_error' });
+        }
+        if (!row) return res.json({ mode: 'idle' });
+        return res.json(row);
+        });
+});
+
+// --- GET /api_tool_uid?id=NN  (retorna uid da ferramenta pedida)
+app.get('/api_tool_uid', (req, res) => {
+    const id = parseInt(req.query.id);
+    if (!id) return res.status(400).json({ error: 'missing_id' });
+    db.get("SELECT uid FROM tools WHERE id = ?", [id], (err, row) => {
+        if (err) {
+            console.error('api_tool_uid err:', err);
+            return res.status(500).json({ error: 'db_error' });
+        }
+        if (!row) return res.status(404).json({ error: 'not_found' });
+        return res.json({ uid: row.uid });
+        });
+});
+
+// --- POST /api_mode_complete  (Arduino chama quando conclui abrir a trava)
+app.post('/api_mode_complete', express.json(), (req, res) => {
+    const mode_id = req.body.mode_id ? parseInt(req.body.mode_id) : null;
+  // apenas confirma recebimento; você pode aprimorar para marcar concluído em DB
+    console.log('api_mode_complete received for mode_id:', mode_id);
+    return res.json({ ok: true });
 });
 
 

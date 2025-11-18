@@ -325,28 +325,36 @@ app.put('/api_tools/:id', express.json(), (req, res) => {
 });
 
 // Retorna o último placeholder criado pelo Arduino (name LIKE 'Ferramenta-%' ou category='N/D')
+// GET /api_last_placeholder
 app.get('/api_last_placeholder', (req, res) => {
-  // procura o último registro com categoria N/D ou nome começando com 'Ferramenta-'
-    db.get(
-        "SELECT id, uid, name, category, status FROM tools WHERE category = 'N/D' OR name LIKE 'Ferramenta-%' ORDER BY id DESC LIMIT 1",
-        [],
-        (err, row) => {
+  const sql = `
+    SELECT 
+        m.id AS mode_id,
+        t.id AS tool_id,
+        t.uid,
+        t.name,
+        t.category,
+        t.code,
+        t.status
+    FROM modes m
+    LEFT JOIN tools t ON m.tool_id = t.id
+    WHERE m.mode = 'cadastrar'
+    ORDER BY m.id DESC
+    LIMIT 1
+    `;
+
+    db.get(sql, [], (err, row) => {
         if (err) {
-            console.error(err);
+            console.error('api_last_placeholder err:', err);
             return res.status(500).json({ error: 'db_error' });
         }
-        if (!row) return res.json({ found: false });
-        return res.json({
-            found: true,
-            id: row.id,
-            uid: row.uid,
-            name: row.name,
-            category: row.category,
-            status: row.status
-        });
+        if (!row) {
+            return res.json({ found: false });
         }
-    );
+        return res.json({ found: true, placeholder: row });
+    });
 });
+
 
 // --- GET /api_categories: retorna lista de categorias ---
 app.get('/api_categories', (req, res) => {
@@ -359,81 +367,62 @@ app.get('/api_categories', (req, res) => {
     });
 });
 
-// --- GET /api_register_tag: cria ou retorna placeholder ao cadastrar tag via Arduino ---
+// GET /api_register_tag?uid=XXXX&mode_id=NN
 app.get('/api_register_tag', (req, res) => {
-    res.setHeader("Content-Type", "application/json");
-    const uid_raw = (req.query.uid || '').trim();
-    if (!uid_raw) return res.status(400).json({ error: 'missing_uid' });
+    const uid = (req.query.uid || '').trim();
+    const mode_id = req.query.mode_id ? parseInt(req.query.mode_id) : null;
 
-    const uid = uid_raw.toUpperCase();
+    if (!uid) return res.status(400).json({ error:'missing_uid' });
 
-    console.log("[api_register_tag] uid:", uid);
+    // find the mode row (if mode_id provided use it, else find last 'cadastrar')
+    const modeQuery = mode_id
+        ? { sql: "SELECT id, tool_id FROM modes WHERE id = ? LIMIT 1", params: [mode_id] }
+        : { sql: "SELECT id, tool_id FROM modes WHERE mode='cadastrar' ORDER BY id DESC LIMIT 1", params: [] };
 
-    db.get("SELECT id, uid, name, category, status FROM tools WHERE uid = ?", [uid], (err, row) => {
-        if (err) {
-        console.error("api_register_tag db err:", err);
-        return res.status(500).json({ error: 'db_error' });
-        }
+    db.get(modeQuery.sql, modeQuery.params, (err, modeRow) => {
+        if (err || !modeRow) { console.error('api_register_tag mode err:', err); return res.status(500).json({ error:'no_mode' }); }
 
-        if (row) {
-        // já existe
-        return res.json({
-            status: 'exists',
-            id: row.id,
-            uid: row.uid,
-            name: row.name,
-            category: row.category,
-            status_tool: row.status
+        const toolId = modeRow.tool_id;
+        if (!toolId) return res.status(400).json({ error:'no_tool' });
+
+        // get category of the placeholder tool
+        db.get("SELECT category FROM tools WHERE id = ?", [toolId], (err2, trow) => {
+            if (err2 || !trow) { console.error('api_register_tag tool err:', err2); return res.status(500).json({ error:'no_tool_row' }); }
+            const category = trow.category || 'GEN';
+
+        // compute prefix (3 letters) and count to create code
+            const prefix = category.replace(/\s+/g,'').substring(0,3).toUpperCase();
+
+            db.get("SELECT COUNT(*) as cnt FROM tools WHERE category = ? AND code IS NOT NULL", [category], (err3, cntRow) => {
+                if (err3) { console.error('api_register_tag count err:', err3); return res.status(500).json({ error:'db_error' }); }
+                const nextIndex = (cntRow && cntRow.cnt) ? (cntRow.cnt + 1) : 1;
+                const code = prefix + String(nextIndex).padStart(3, '0'); // ex: AUT001
+
+                const name = `FERR-${code}`;
+
+            // update tool with uid, code, name and set status as Disponível
+                db.run("UPDATE tools SET uid = ?, code = ?, name = ?, status = ? WHERE id = ?",
+                    [uid, code, name, 'Disponível', toolId],
+                    function(err4) {
+                        if (err4) { console.error('api_register_tag update err:', err4); return res.status(500).json({ error:'db_error' }); }
+
+                // insert a log entry (optional)
+                    db.run("INSERT INTO logs (tool_id, user_id, action, borrower_name, borrower_class, timestamp) VALUES (?, ?, ?, ?, ?, datetime('now'))",
+                        [toolId, null, 'cadastrado', null, null], function(logErr) {
+                            if (logErr) console.error('api_register_tag log err:', logErr);
+                            return res.json({ ok:true, tool_id: toolId, uid, code, name });
+                        }
+                    );
+                });
+
         });
-    }
 
-    // cria placeholder
-    const placeholder = "Ferramenta-" + uid;
-    db.run(
-        "INSERT INTO tools (uid, name, category, status) VALUES (?, ?, ?, ?)",
-        [uid, placeholder, "N/D", "Disponível"],
-        function(err) {
-            if (err) {
-            console.error("api_register_tag insert err:", err);
-            return res.status(500).json({ error: 'insert_failed' });
-            }
-            console.log("[api_register_tag] created id:", this.lastID);
-            return res.json({
-            status: 'created',
-            id: this.lastID,
-            uid: uid,
-            name: placeholder,
-            category: 'N/D',
-            status_tool: 'Disponível'
-            });
-        }
-        );
+        });
+
     });
 });
 
-// --- GET /api_last_placeholder: retorna último placeholder (para polling do front) ---
-app.get('/api_last_placeholder', (req, res) => {
-  // Busca o mais recente com category = 'N/D' ou nome começando com 'Ferramenta-'
-    db.get(
-        "SELECT id, uid, name, category, status FROM tools WHERE category = 'N/D' OR name LIKE 'Ferramenta-%' ORDER BY id DESC LIMIT 1",
-        [],
-        (err, row) => {
-        if (err) {
-            console.error("api_last_placeholder err:", err);
-            return res.status(500).json({ error: 'db_error' });
-        }
-        if (!row) return res.json({ found: false });
-        return res.json({
-            found: true,
-            id: row.id,
-            uid: row.uid,
-            name: row.name,
-            category: row.category,
-            status: row.status
-        });
-        }
-    );
-});
+
 
 // --- PUT /api_tools/:id -> atualiza name e category (usado pelo front para salvar placeholder) ---
 app.put('/api_tools/:id', express.json(), (req, res) => {
@@ -455,39 +444,54 @@ app.put('/api_tools/:id', express.json(), (req, res) => {
     });
 });
 
-// --- POST /api_set_mode  (site passa mode: 'retirar' | 'devolver' | 'idle')
+// POST /api_set_mode
 app.post('/api_set_mode', express.json(), (req, res) => {
     const mode = (req.body.mode || '').trim();
-    const tool_id = req.body.tool_id ? parseInt(req.body.tool_id) : null;
+    const tool_id_body = req.body.tool_id ? parseInt(req.body.tool_id) : null;
     const user_id = req.body.user_id ? parseInt(req.body.user_id) : null;
+    const category = (req.body.category || '').trim();
 
     if (!['retirar','devolver','idle','cadastrar'].includes(mode)) {
         return res.status(400).json({ error: 'invalid_mode' });
     }
 
-    db.run("INSERT INTO modes (mode, tool_id, user_id) VALUES (?, ?, ?)",
-        [mode, tool_id, user_id],
+    // If mode is 'cadastrar', create a placeholder tool record and link it to modes
+    if (mode === 'cadastrar') {
+        // create placeholder tool (uid empty, name empty, status 'placeholder')
+        db.run("INSERT INTO tools (uid, name, category, status) VALUES (?, ?, ?, ?)",
+        [null, null, category, 'placeholder'],
         function(err) {
-        if (err) {
-            console.error('api_set_mode err:', err);
+            if (err) {
+            console.error('api_set_mode (insert placeholder) err:', err);
             return res.status(500).json({ error: 'db_error' });
-        }
-        return res.json({ ok: true, mode_id: this.lastID, mode, tool_id, user_id });
+            }
+            const createdToolId = this.lastID;
+            // insert mode row pointing to the placeholder tool
+            db.run("INSERT INTO modes (mode, tool_id, user_id) VALUES (?, ?, ?)",
+                [mode, createdToolId, user_id],
+                function(err2) {
+                    if (err2) {
+                        console.error('api_set_mode (insert mode) err:', err2);
+                        return res.status(500).json({ error: 'db_error' });
+                    }
+                    return res.json({ ok:true, mode_id: this.lastID, mode, tool_id: createdToolId, category });
+            });
+        });
+        return;
     }
-    );
+
+    // default (retirar/devolver/idle) - original behavior
+    db.run("INSERT INTO modes (mode, tool_id, user_id) VALUES (?, ?, ?)",
+        [mode, tool_id_body, user_id],
+        function(err) {
+            if (err) {
+                console.error('api_set_mode err:', err);
+                return res.status(500).json({ error: 'db_error' });
+            }
+            return res.json({ ok: true, mode_id: this.lastID, mode, tool_id: tool_id_body, user_id });
+    });
 });
 
-// --- GET /api_current_mode  (Arduino consulta frequentemente)
-app.get('/api_current_mode', (req, res) => {
-    db.get("SELECT id, mode, tool_id, user_id, created_at FROM modes ORDER BY id DESC LIMIT 1", [], (err, row) => {
-        if (err) {
-            console.error('api_current_mode err:', err);
-            return res.status(500).json({ error: 'db_error' });
-        }
-        if (!row) return res.json({ mode: 'idle' });
-        return res.json(row);
-        });
-});
 
 // --- GET /api_tool_uid?id=NN  (retorna uid da ferramenta pedida)
 app.get('/api_tool_uid', (req, res) => {

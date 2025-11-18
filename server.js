@@ -459,7 +459,7 @@ app.post('/api_set_mode', express.json(), (req, res) => {
     if (mode === 'cadastrar') {
         // create placeholder tool (uid empty, name empty, status 'placeholder')
         db.run("INSERT INTO tools (uid, name, category, status) VALUES (?, ?, ?, ?)",
-        [null, null, category, 'placeholder'],
+        ['', '', category, 'placeholder'],
         function(err) {
             if (err) {
             console.error('api_set_mode (insert placeholder) err:', err);

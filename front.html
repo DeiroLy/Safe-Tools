@@ -463,12 +463,30 @@
 
         <div id="cadastro-section" class="content-section widget-card">
             <h2>Cadastrar Nova Ferramenta</h2>
-            <p style="margin-bottom: 15px;">Para cadastrar, aproxime a nova ferramenta do leitor RFID e preencha os campos abaixo.</p>
-            <input type="text" id="new-tool-uid" placeholder="UID da Tag RFID">
+            <p style="margin-bottom: 15px;">Clique em <strong>Iniciar Escaneamento</strong> e aproxime a nova ferramenta do leitor RFID. O sistema preencherá automaticamente o UID.</p>
+
+            <div style="display:flex; gap:10px; margin-bottom:12px;">
+                <button id="start-scan-btn" onclick="startScan()">Iniciar Escaneamento</button>
+                <span id="scan-status" style="align-self:center; color:#555; font-weight:600;">Pronto</span>
+            </div>
+
+            <label>UID (preenchido automaticamente)</label>
+            <input type="text" id="new-tool-uid" placeholder="UID da Tag RFID" readonly>
+
+            <label>Nome da Ferramenta</label>
             <input type="text" id="new-tool-name" placeholder="Nome da Ferramenta">
-            <input type="text" id="new-tool-category" placeholder="Categoria (ex: Automação)">
-            <button onclick="registerTool()">Cadastrar Ferramenta</button>
+
+            <label>Categoria</label>
+            <select id="new-tool-category">
+                <option value="">Carregando categorias...</option>
+            </select>
+
+            <div style="margin-top:12px;">
+                <button id="save-tool-btn" onclick="saveRegisteredTool()">Salvar Ferramenta</button>
+                <button onclick="cancelScan()" style="background:#6c757d; margin-left:8px;">Cancelar</button>
+            </div>
         </div>
+
 
         <div id="return-section" class="content-section widget-card">
             <h2>Devolver Ferramenta</h2>
@@ -932,6 +950,138 @@
             msg.style.color = 'red';
         }
 }
+
+    /*******************
+     * Categorias + Scan flow
+     *******************/
+    let scanTimer = null;
+    let scanPollingInterval = 1500; // ms
+    let scanTimeoutMs = 15000; // tempo máximo para aguardar tag
+    let scanStartTime = 0;
+    let currentPlaceholderId = null;
+
+    // popula dropdown de categorias
+    async function loadCategories() {
+    try {
+        const res = await fetch(`${API_URL}/api_categories`);
+        const json = await res.json();
+        const select = document.getElementById('new-tool-category');
+        select.innerHTML = '<option value="">-- Selecionar categoria --</option>';
+        if (json && json.categories) {
+        json.categories.forEach(cat => {
+            const opt = document.createElement('option');
+            opt.value = cat.name; // se preferir id: opt.value = cat.id;
+            opt.textContent = cat.name;
+            select.appendChild(opt);
+        });
+        } else {
+        select.innerHTML = '<option value="">Nenhuma categoria</option>';
+        }
+    } catch (err) {
+        console.error('Erro ao carregar categorias', err);
+        document.getElementById('new-tool-category').innerHTML = '<option value="">Erro carregar</option>';
+    }
+    }
+
+    // inicia modo escaneamento -> faz polling para /api_last_placeholder
+    function startScan() {
+    document.getElementById('scan-status').textContent = 'Aguardando tag...';
+    document.getElementById('start-scan-btn').disabled = true;
+    scanStartTime = Date.now();
+    currentPlaceholderId = null;
+
+    // checa imediatamente e depois periodicamente
+    pollForPlaceholder();
+    scanTimer = setInterval(pollForPlaceholder, scanPollingInterval);
+    }
+
+    // cancela modo scan
+    function cancelScan() {
+    if (scanTimer) clearInterval(scanTimer);
+    scanTimer = null;
+    currentPlaceholderId = null;
+    document.getElementById('scan-status').textContent = 'Cancelado.';
+    document.getElementById('start-scan-btn').disabled = false;
+    }
+
+    // Poll: pede ao servidor o último placeholder criado (por Arduino)
+    // Implementação do endpoint no server deve buscar ferramenta criada com nome padrão ou category 'N/D'
+    async function pollForPlaceholder() {
+    try {
+        // endpoint para buscar último placeholder (veja abaixo como criar no server)
+        const res = await fetch(`${API_URL}/api_last_placeholder`);
+        if (!res.ok) return;
+        const json = await res.json();
+        // espera um objeto { found: true/false, id, uid, name, category }
+        if (json && json.found) {
+        // preenche campos e habilita salvar
+        document.getElementById('new-tool-uid').value = json.uid || '';
+        document.getElementById('new-tool-name').value = json.name && json.name.startsWith('Ferramenta-') ? '' : (json.name || '');
+        document.getElementById('new-tool-category').value = json.category || '';
+        currentPlaceholderId = json.id;
+        document.getElementById('scan-status').textContent = `Tag detectada: ${json.uid}`;
+        // para o polling
+        clearInterval(scanTimer);
+        scanTimer = null;
+        document.getElementById('start-scan-btn').disabled = false;
+        return;
+        }
+    } catch (err) {
+        console.error('Poll error', err);
+    }
+
+    // timeout
+    if (Date.now() - scanStartTime > scanTimeoutMs) {
+        cancelScan();
+        document.getElementById('scan-status').textContent = 'Tempo esgotado. Tente novamente.';
+    }
+    }
+
+    // Salva (atualiza) o placeholder criado pelo Arduino
+    async function saveRegisteredTool() {
+    const id = currentPlaceholderId;
+    const uid = document.getElementById('new-tool-uid').value.trim();
+    const name = document.getElementById('new-tool-name').value.trim();
+    const category = document.getElementById('new-tool-category').value.trim();
+
+    if (!id || !uid) {
+        alert('Nenhuma tag registrada. Inicie o escaneamento e aproxime a tag primeiro.');
+        return;
+    }
+    if (!name || !category) {
+        alert('Preencha nome e selecione a categoria.');
+        return;
+    }
+
+    try {
+        const res = await fetch(`${API_URL}/api_tools/${id}`, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ name, category })
+        });
+        const json = await res.json();
+        if (json && json.success) {
+        alert('Ferramenta cadastrada com sucesso.');
+        // limpa campos
+        document.getElementById('new-tool-uid').value = '';
+        document.getElementById('new-tool-name').value = '';
+        document.getElementById('new-tool-category').value = '';
+        currentPlaceholderId = null;
+        loadTools(); // atualiza catálogo
+        if (document.getElementById('dashboard-section').classList.contains('active')) loadDashboard();
+        } else {
+        alert('Erro ao salvar: ' + (json.error || JSON.stringify(json)));
+        }
+    } catch (err) {
+        console.error(err);
+        alert('Erro ao salvar ferramenta.');
+    }
+    }
+
+    // quando a página carrega, já busca categorias
+    document.addEventListener('DOMContentLoaded', () => {
+    loadCategories();
+    });
 
 
 </script>

@@ -461,7 +461,7 @@ app.post('/api_set_mode', express.json(), (req, res) => {
     const tool_id = req.body.tool_id ? parseInt(req.body.tool_id) : null;
     const user_id = req.body.user_id ? parseInt(req.body.user_id) : null;
 
-    if (!['retirar','devolver','idle'].includes(mode)) {
+    if (!['retirar','devolver','idle','cadastrar'].includes(mode)) {
         return res.status(400).json({ error: 'invalid_mode' });
     }
 

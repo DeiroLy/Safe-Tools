@@ -278,7 +278,7 @@ app.get('/api_action', (req, res) => {
 app.get('/api_categories', (req, res) => {
     db.all("SELECT id, name FROM categories ORDER BY name COLLATE NOCASE", [], (err, rows) => {
         if (err) {
-            console.error("api_categories err:" err);
+            console.error("api_categories err:", err);
             return res.status(500).json({ error: 'db_error' });
         }
         res.json({ categories: rows });

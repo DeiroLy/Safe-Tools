@@ -273,6 +273,190 @@ app.get('/api_action', (req, res) => {
         return res.send("error: invalid action");
     }
 });
+
+// --- GET /api_categories  -> retorna lista de categorias ---
+app.get('/api_categories', (req, res) => {
+    db.all("SELECT id, name FROM categories ORDER BY name COLLATE NOCASE", [], (err, rows) => {
+    if (err) {
+        console.error(err);
+        return res.status(500).json({ error: 'db_error' });
+    }
+    res.json({ categories: rows });
+    });
+});
+
+// --- POST /api_categories -> cria nova categoria (admin) ---
+app.post('/api_categories', express.json(), (req, res) => {
+    const name = (req.body.name || '').trim();
+    if (!name) return res.status(400).json({ error: 'missing_name' });
+
+    db.run("INSERT INTO categories (name) VALUES (?)", [name], function(err) {
+    if (err) {
+        console.error(err);
+        return res.status(500).json({ error: 'insert_failed' });
+    }
+    res.json({ id: this.lastID, name });
+    });
+});
+
+// --- PUT /api_tools/:id -> atualizar nome / categoria / status de uma ferramenta ---
+app.put('/api_tools/:id', express.json(), (req, res) => {
+    const id = parseInt(req.params.id);
+    const name = ('name' in req.body) ? req.body.name.trim() : null;
+    const category = ('category' in req.body) ? req.body.category : null;
+    const status = ('status' in req.body) ? req.body.status : null;
+
+  // montar query dinamicamente
+    const sets = [];
+    const params = [];
+
+    if (name !== null) { sets.push("name = ?"); params.push(name); }
+    if (category !== null) { sets.push("category = ?"); params.push(category); }
+    if (status !== null) { sets.push("status = ?"); params.push(status); }
+
+    if (sets.length === 0) return res.status(400).json({ error: 'nothing_to_update' });
+
+    params.push(id);
+    const sql = `UPDATE tools SET ${sets.join(', ')} WHERE id = ?`;
+    db.run(sql, params, function(err) {
+        if (err) { console.error(err); return res.status(500).json({ error: 'update_failed' }); }
+        res.json({ success: true, changes: this.changes });
+    });
+});
+
+// Retorna o último placeholder criado pelo Arduino (name LIKE 'Ferramenta-%' ou category='N/D')
+app.get('/api_last_placeholder', (req, res) => {
+  // procura o último registro com categoria N/D ou nome começando com 'Ferramenta-'
+    db.get(
+        "SELECT id, uid, name, category, status FROM tools WHERE category = 'N/D' OR name LIKE 'Ferramenta-%' ORDER BY id DESC LIMIT 1",
+        [],
+        (err, row) => {
+        if (err) {
+            console.error(err);
+            return res.status(500).json({ error: 'db_error' });
+        }
+        if (!row) return res.json({ found: false });
+        return res.json({
+            found: true,
+            id: row.id,
+            uid: row.uid,
+            name: row.name,
+            category: row.category,
+            status: row.status
+        });
+        }
+    );
+});
+
+// --- GET /api_categories: retorna lista de categorias ---
+app.get('/api_categories', (req, res) => {
+    db.all("SELECT id, name FROM categories ORDER BY name COLLATE NOCASE", [], (err, rows) => {
+        if (err) {
+        console.error("api_categories err:", err);
+        return res.status(500).json({ error: 'db_error' });
+        }
+        res.json({ categories: rows });
+    });
+});
+
+// --- GET /api_register_tag: cria ou retorna placeholder ao cadastrar tag via Arduino ---
+app.get('/api_register_tag', (req, res) => {
+    res.setHeader("Content-Type", "application/json");
+    const uid_raw = (req.query.uid || '').trim();
+    if (!uid_raw) return res.status(400).json({ error: 'missing_uid' });
+
+    const uid = uid_raw.toUpperCase();
+
+    console.log("[api_register_tag] uid:", uid);
+
+    db.get("SELECT id, uid, name, category, status FROM tools WHERE uid = ?", [uid], (err, row) => {
+        if (err) {
+        console.error("api_register_tag db err:", err);
+        return res.status(500).json({ error: 'db_error' });
+        }
+
+        if (row) {
+        // já existe
+        return res.json({
+            status: 'exists',
+            id: row.id,
+            uid: row.uid,
+            name: row.name,
+            category: row.category,
+            status_tool: row.status
+        });
+    }
+
+    // cria placeholder
+    const placeholder = "Ferramenta-" + uid;
+    db.run(
+        "INSERT INTO tools (uid, name, category, status) VALUES (?, ?, ?, ?)",
+        [uid, placeholder, "N/D", "Disponível"],
+        function(err) {
+            if (err) {
+            console.error("api_register_tag insert err:", err);
+            return res.status(500).json({ error: 'insert_failed' });
+            }
+            console.log("[api_register_tag] created id:", this.lastID);
+            return res.json({
+            status: 'created',
+            id: this.lastID,
+            uid: uid,
+            name: placeholder,
+            category: 'N/D',
+            status_tool: 'Disponível'
+            });
+        }
+        );
+    });
+});
+
+// --- GET /api_last_placeholder: retorna último placeholder (para polling do front) ---
+app.get('/api_last_placeholder', (req, res) => {
+  // Busca o mais recente com category = 'N/D' ou nome começando com 'Ferramenta-'
+    db.get(
+        "SELECT id, uid, name, category, status FROM tools WHERE category = 'N/D' OR name LIKE 'Ferramenta-%' ORDER BY id DESC LIMIT 1",
+        [],
+        (err, row) => {
+        if (err) {
+            console.error("api_last_placeholder err:", err);
+            return res.status(500).json({ error: 'db_error' });
+        }
+        if (!row) return res.json({ found: false });
+        return res.json({
+            found: true,
+            id: row.id,
+            uid: row.uid,
+            name: row.name,
+            category: row.category,
+            status: row.status
+        });
+        }
+    );
+});
+
+// --- PUT /api_tools/:id -> atualiza name e category (usado pelo front para salvar placeholder) ---
+app.put('/api_tools/:id', express.json(), (req, res) => {
+    const id = parseInt(req.params.id);
+    if (!id) return res.status(400).json({ error: 'invalid_id' });
+
+    const name = (req.body.name || '').trim();
+    const category = (req.body.category || '').trim();
+
+    if (!name || !category) return res.status(400).json({ error: 'missing_fields' });
+
+    db.run("UPDATE tools SET name = ?, category = ? WHERE id = ?", [name, category, id], function(err) {
+        if (err) {
+        console.error("api_tools PUT err:", err);
+        return res.status(500).json({ error: 'update_failed' });
+        }
+        if (this.changes === 0) return res.status(404).json({ error: 'not_found' });
+        return res.json({ success: true, changes: this.changes });
+    });
+});
+
+
+
 // --- INICIAR SERVIDOR ---
 app.listen(PORT, () => {
     console.log(`Servidor rodando na porta ${PORT}`);

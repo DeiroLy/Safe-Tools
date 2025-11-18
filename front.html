@@ -493,7 +493,12 @@
             <p>
                 Aproxime a ferramenta do leitor RFID para registar a devolução.
             </p>
+            
+            <button onclick="startDevolver()" style="margin-top: 15px;">
+                Iniciar Devolver
+            </button>
         </div>
+
 
         <div id="history-section" class="content-section widget-card">
             <h2>Histórico de Movimentações</h2>
@@ -737,7 +742,7 @@
                                 <div class="tool-actions">
                                     <span class="status status-${statusClass}">${tool.status}</span>
                                     ${tool.status === 'Disponível' ? `
-                                        <button onclick="updateToolStatus(${tool.id}, 'Em uso')">Usar</button>
+                                        <button onclick="startRetirar(${tool.id}, currentUser.id)">Usar</button>
                                         <button onclick="borrowTool(${tool.id})">Emprestar</button>
                                     ` : tool.status === 'Em uso' ? `
                                         <button onclick="returnTool('${tool.uid}')">Devolver</button>
@@ -813,37 +818,6 @@
             .catch(err => {
                 console.error(err);
                 alert('Erro ao remover ferramenta.');
-            });
-    }
-
-    function registerTool() {
-        const uid = document.getElementById('new-tool-uid').value.trim();
-        const name = document.getElementById('new-tool-name').value.trim();
-        const category = document.getElementById('new-tool-category').value.trim();
-
-        if (!uid || !name || !category) {
-            alert('Por favor, preencha todos os campos.');
-            return;
-        }
-
-        fetch(`${API_URL}/tools/register`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ uid, name, category })
-        })
-            .then(res => res.json())
-            .then(data => {
-                alert(data.message);
-                if (data.success) {
-                    document.getElementById('new-tool-uid').value = '';
-                    document.getElementById('new-tool-name').value = '';
-                    document.getElementById('new-tool-category').value = '';
-                    loadTools();
-                }
-            })
-            .catch(err => {
-                console.error(err);
-                alert('Erro ao conectar com o servidor.');
             });
     }
 
@@ -951,76 +925,91 @@
         }
 }
 
-    /*******************
-     * Categorias + Scan flow
-     *******************/
-    let scanTimer = null;
-    let scanPollingInterval = 1500; // ms
-    let scanTimeoutMs = 15000; // tempo máximo para aguardar tag
-    let scanStartTime = 0;
-    let currentPlaceholderId = null;
+/*******************
+ * Categorias + Scan flow
+ *******************/
+let scanTimer = null;
+let scanPollingInterval = 1500; // ms
+let scanTimeoutMs = 15000; // tempo máximo para aguardar tag
+let scanStartTime = 0;
+let currentPlaceholderId = null;
 
-    // popula dropdown de categorias
-    async function loadCategories() {
+// popula dropdown de categorias
+async function loadCategories() {
     try {
-        const res = await fetch(`${API_URL}/api_categories`);
-        const json = await res.json();
-        const select = document.getElementById('new-tool-category');
-        select.innerHTML = '<option value="">-- Selecionar categoria --</option>';
-        if (json && json.categories) {
+    const res = await fetch(`${API_URL}/api_categories`);
+    const json = await res.json();
+    const select = document.getElementById('new-tool-category');
+    select.innerHTML = '<option value="">-- Selecionar categoria --</option>';
+    if (json && json.categories) {
         json.categories.forEach(cat => {
-            const opt = document.createElement('option');
-            opt.value = cat.name; // se preferir id: opt.value = cat.id;
-            opt.textContent = cat.name;
-            select.appendChild(opt);
+        const opt = document.createElement('option');
+        opt.value = cat.name; // se preferir id: opt.value = cat.id;
+        opt.textContent = cat.name;
+        select.appendChild(opt);
         });
-        } else {
+    } else {
         select.innerHTML = '<option value="">Nenhuma categoria</option>';
-        }
+    }
     } catch (err) {
-        console.error('Erro ao carregar categorias', err);
-        document.getElementById('new-tool-category').innerHTML = '<option value="">Erro carregar</option>';
+    console.error('Erro ao carregar categorias', err);
+    document.getElementById('new-tool-category').innerHTML = '<option value="">Erro carregar</option>';
     }
-    }
+}
 
-    // inicia modo escaneamento -> faz polling para /api_last_placeholder
-    function startScan() {
+// startScan() — inicia o modo CADASTRO no servidor e começa polling por placeholder
+async function startScan() {
     document.getElementById('scan-status').textContent = 'Aguardando tag...';
     document.getElementById('start-scan-btn').disabled = true;
     scanStartTime = Date.now();
     currentPlaceholderId = null;
 
-    // checa imediatamente e depois periodicamente
+    // 1) pede ao servidor que ative o modo 'cadastrar'
+    try {
+        const res = await fetch(`${API_URL}/api_set_mode`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ mode: 'cadastrar' })
+        });
+        const json = await res.json();
+        if (!json.ok) {
+            alert('Erro ao iniciar escaneamento: ' + (json.error || 'unknown'));
+            document.getElementById('start-scan-btn').disabled = false;
+            document.getElementById('scan-status').textContent = 'Erro iniciar';
+            return;
+        }
+        } catch (err) {
+            console.error('startScan error', err);
+            alert('Erro de rede ao iniciar escaneamento.');
+            document.getElementById('start-scan-btn').disabled = false;
+            document.getElementById('scan-status').textContent = 'Erro rede';
+            return;
+        }
+
+    // 2) checa imediatamente e depois periodicamente
     pollForPlaceholder();
     scanTimer = setInterval(pollForPlaceholder, scanPollingInterval);
     }
 
-    // cancela modo scan
-    function cancelScan() {
-    if (scanTimer) clearInterval(scanTimer);
-    scanTimer = null;
-    currentPlaceholderId = null;
-    document.getElementById('scan-status').textContent = 'Cancelado.';
-    document.getElementById('start-scan-btn').disabled = false;
-    }
 
-    // Poll: pede ao servidor o último placeholder criado (por Arduino)
-    // Implementação do endpoint no server deve buscar ferramenta criada com nome padrão ou category 'N/D'
-    async function pollForPlaceholder() {
+
+// Poll: pede ao servidor o último placeholder criado (por Arduino)
+// Implementação do endpoint no server deve buscar ferramenta criada com nome padrão ou category 'N/D'
+async function pollForPlaceholder() {
     try {
-        // endpoint para buscar último placeholder (veja abaixo como criar no server)
-        const res = await fetch(`${API_URL}/api_last_placeholder`);
-        if (!res.ok) return;
-        const json = await res.json();
-        // espera um objeto { found: true/false, id, uid, name, category }
-        if (json && json.found) {
-        // preenche campos e habilita salvar
+    // endpoint para buscar último placeholder (veja abaixo como criar no server)
+    const res = await fetch(`${API_URL}/api_last_placeholder`);
+    if (!res.ok) return;
+    const json = await res.json();
+    // espera um objeto { found: true/false, id, uid, name, category }
+    if (json && json.found) {
+      // preenche campos e habilita salvar
         document.getElementById('new-tool-uid').value = json.uid || '';
         document.getElementById('new-tool-name').value = json.name && json.name.startsWith('Ferramenta-') ? '' : (json.name || '');
         document.getElementById('new-tool-category').value = json.category || '';
         currentPlaceholderId = json.id;
         document.getElementById('scan-status').textContent = `Tag detectada: ${json.uid}`;
-        // para o polling
+      // para o polling
         clearInterval(scanTimer);
         scanTimer = null;
         document.getElementById('start-scan-btn').disabled = false;
@@ -1035,10 +1024,10 @@
         cancelScan();
         document.getElementById('scan-status').textContent = 'Tempo esgotado. Tente novamente.';
     }
-    }
+}
 
-    // Salva (atualiza) o placeholder criado pelo Arduino
-    async function saveRegisteredTool() {
+// Salva (atualiza) o placeholder criado pelo Arduino
+async function saveRegisteredTool() {
     const id = currentPlaceholderId;
     const uid = document.getElementById('new-tool-uid').value.trim();
     const name = document.getElementById('new-tool-name').value.trim();
@@ -1076,12 +1065,56 @@
         console.error(err);
         alert('Erro ao salvar ferramenta.');
     }
-    }
+}
 
-    // quando a página carrega, já busca categorias
-    document.addEventListener('DOMContentLoaded', () => {
+// quando a página carrega, já busca categorias
+document.addEventListener('DOMContentLoaded', () => {
     loadCategories();
-    });
+});
+
+// Chame isto quando o usuário clicar "Usar/Emprestar" no catálogo
+// exemplo: onClick="startRetirar( TOOL_ID, USER_ID )"
+async function startRetirar(toolId, userId) {
+    try {
+        const res = await fetch(`${API_URL}/api_set_mode`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ mode: 'retirar', tool_id: toolId, user_id: userId })
+        });
+        const json = await res.json();
+        if (json.ok) {
+            alert('Modo de retirada ativado. Aproximação da ferramenta necessária para liberar a trava.');
+        // opcional: mostrar mensagem no UI, bloquear botões, etc.
+        } else {
+        alert('Erro ao ativar modo: ' + (json.error || JSON.stringify(json)));
+        }
+    } catch (err) {
+        console.error(err);
+        alert('Erro de rede ao ativar retirada.');
+    }
+}
+
+// Chame isto quando desejar iniciar a tela Devolver (Usuário clica "Iniciar Devolver")
+async function startDevolver() {
+    try {
+        const res = await fetch(`${API_URL}/api_set_mode`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ mode: 'devolver' })
+        });
+        const json = await res.json();
+        if (json.ok) {
+            alert('Modo Devolver ativado. Aproxime a ferramenta para registrar a devolução.');
+        // opcional: alterar UI para mostrar aguarde tag...
+        } else {
+        alert('Erro ao ativar modo devolver: ' + (json.error || JSON.stringify(json)));
+        }
+    } catch (err) {
+        console.error(err);
+        alert('Erro de rede ao iniciar devolver.');
+    }
+}
+
 
 
 </script>

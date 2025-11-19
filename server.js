@@ -374,53 +374,69 @@ app.get('/api_register_tag', (req, res) => {
 
     if (!uid) return res.status(400).json({ error:'missing_uid' });
 
-    // find the mode row (if mode_id provided use it, else find last 'cadastrar')
-    const modeQuery = mode_id
-        ? { sql: "SELECT id, tool_id FROM modes WHERE id = ? LIMIT 1", params: [mode_id] }
-        : { sql: "SELECT id, tool_id FROM modes WHERE mode='cadastrar' ORDER BY id DESC LIMIT 1", params: [] };
+    // If UID already exists for another tool -> return informative error
+    db.get("SELECT id FROM tools WHERE uid = ?", [uid], (errCheck, existing) => {
+            if (errCheck) {
+            console.error('api_register_tag check err:', errCheck);
+            return res.status(500).json({ error:'db_error', detail: errCheck.message });
+        }
+        if (existing) {
+            // uid already registered to a tool -> return error so front/arduino can handle
+            return res.status(409).json({ error: 'uid_exists', existing_tool_id: existing.id });
+        }
 
-    db.get(modeQuery.sql, modeQuery.params, (err, modeRow) => {
-        if (err || !modeRow) { console.error('api_register_tag mode err:', err); return res.status(500).json({ error:'no_mode' }); }
+        // proceed: find the mode row (if mode_id provided use it, else find last 'cadastrar')
+        const modeQuery = mode_id
+            ? { sql: "SELECT id, tool_id FROM modes WHERE id = ? LIMIT 1", params: [mode_id] }
+            : { sql: "SELECT id, tool_id FROM modes WHERE mode='cadastrar' ORDER BY id DESC LIMIT 1", params: [] };
 
-        const toolId = modeRow.tool_id;
-        if (!toolId) return res.status(400).json({ error:'no_tool' });
+        db.get(modeQuery.sql, modeQuery.params, (err, modeRow) => {
+            if (err || !modeRow) { console.error('api_register_tag mode err:', err); return res.status(500).json({ error:'no_mode' }); }
 
-        // get category of the placeholder tool
-        db.get("SELECT category FROM tools WHERE id = ?", [toolId], (err2, trow) => {
-            if (err2 || !trow) { console.error('api_register_tag tool err:', err2); return res.status(500).json({ error:'no_tool_row' }); }
-            const category = trow.category || 'GEN';
+            const toolId = modeRow.tool_id;
+            if (!toolId) return res.status(400).json({ error:'no_tool' });
 
-        // compute prefix (3 letters) and count to create code
-            const prefix = category.replace(/\s+/g,'').substring(0,3).toUpperCase();
+            // get category of the placeholder tool
+            db.get("SELECT category FROM tools WHERE id = ?", [toolId], (err2, trow) => {
+                if (err2 || !trow) { console.error('api_register_tag tool err:', err2); return res.status(500).json({ error:'no_tool_row' }); }
+                const category = trow.category || 'GEN';
 
-            db.get("SELECT COUNT(*) as cnt FROM tools WHERE category = ? AND code IS NOT NULL", [category], (err3, cntRow) => {
-                if (err3) { console.error('api_register_tag count err:', err3); return res.status(500).json({ error:'db_error' }); }
-                const nextIndex = (cntRow && cntRow.cnt) ? (cntRow.cnt + 1) : 1;
-                const code = prefix + String(nextIndex).padStart(3, '0'); // ex: AUT001
+                // compute prefix (3 letters) and count to create code
+                const prefix = category.replace(/\s+/g,'').substring(0,3).toUpperCase();
 
-                const name = `FERR-${code}`;
+                db.get("SELECT COUNT(*) as cnt FROM tools WHERE category = ? AND code IS NOT NULL", [category], (err3, cntRow) => {
+                    if (err3) { console.error('api_register_tag count err:', err3); return res.status(500).json({ error:'db_error' }); }
+                    const nextIndex = (cntRow && cntRow.cnt) ? (cntRow.cnt + 1) : 1;
+                    const code = prefix + String(nextIndex).padStart(3, '0'); // ex: AUT001
 
-            // update tool with uid, code, name and set status as Disponível
-                db.run("UPDATE tools SET uid = ?, code = ?, name = ?, status = ? WHERE id = ?",
-                    [uid, code, name, 'Disponível', toolId],
-                    function(err4) {
-                        if (err4) { console.error('api_register_tag update err:', err4); return res.status(500).json({ error:'db_error' }); }
+                    const name = `FERR-${code}`;
+
+                    // update tool with uid, code, name and set status as Disponível
+                    db.run("UPDATE tools SET uid = ?, code = ?, name = ?, status = ? WHERE id = ?",
+                        [uid, code, name, 'Disponível', toolId],
+                        function(err4) {
+                            if (err4) { 
+                                console.error('api_register_tag update err:', err4); 
+                                return res.status(500).json({ error:'db_error', detail: err4.message });
+                        }
 
                 // insert a log entry (optional)
-                    db.run("INSERT INTO logs (tool_id, user_id, action, borrower_name, borrower_class, timestamp) VALUES (?, ?, ?, ?, ?, datetime('now'))",
-                        [toolId, null, 'cadastrado', null, null], function(logErr) {
-                            if (logErr) console.error('api_register_tag log err:', logErr);
-                            return res.json({ ok:true, tool_id: toolId, uid, code, name });
-                        }
-                    );
-                });
+                        db.run("INSERT INTO logs (tool_id, user_id, action, borrower_name, borrower_class, timestamp) VALUES (?, ?, ?, ?, ?, datetime('now'))",
+                            [toolId, null, 'cadastrado', null, null], function(logErr) {
+                                if (logErr) console.error('api_register_tag log err:', logErr);
+                                return res.json({ ok:true, tool_id: toolId, uid, code, name });
+                    }
+                );
+            });
+
+            });
 
         });
 
         });
-
     });
 });
+
 
 
 
@@ -457,27 +473,62 @@ app.post('/api_set_mode', express.json(), (req, res) => {
 
     // If mode is 'cadastrar', create a placeholder tool record and link it to modes
     if (mode === 'cadastrar') {
-        // create placeholder tool (uid empty, name empty, status 'placeholder')
-        db.run("INSERT INTO tools (uid, name, category, status) VALUES (?, ?, ?, ?)",
-        ['', '', category, 'placeholder'],
-        function(err) {
-            if (err) {
-            console.error('api_set_mode (insert placeholder) err:', err);
-            return res.status(500).json({ error: 'db_error' });
-            }
-            const createdToolId = this.lastID;
-            // insert mode row pointing to the placeholder tool
-            db.run("INSERT INTO modes (mode, tool_id, user_id) VALUES (?, ?, ?)",
-                [mode, createdToolId, user_id],
-                function(err2) {
-                    if (err2) {
-                        console.error('api_set_mode (insert mode) err:', err2);
-                        return res.status(500).json({ error: 'db_error' });
+ // create placeholder tool (uid must be unique -> generate temporary placeholder UID with retry)
+        function generatePlaceholderUid() {
+            return 'PH-' + Date.now() + '-' + Math.floor(Math.random() * 100000);
+        }
+
+        const maxTries = 6;
+        let createdToolId = null;
+
+        (function tryInsertPlaceholder(attempt) {
+            if (attempt > maxTries) {
+                console.error('api_set_mode: failed to create unique placeholder after', maxTries, 'attempts');
+                return res.status(500).json({ error: 'db_error', detail: 'unable_to_create_placeholder' });
+        }
+
+            const placeholderUid = generatePlaceholderUid();
+
+            db.run(
+                "INSERT INTO tools (uid, name, category, status) VALUES (?, ?, ?, ?)",
+                [placeholderUid, '', category, 'placeholder'],
+                function(err) {
+                    if (err) {
+                        // If uid has collision, retry
+                        if (err.code === 'SQLITE_CONSTRAINT' && err.message.includes('uid')) {
+                            console.warn('api_set_mode placeholder uid conflict, retrying.. attempt', attempt);
+                            return tryInsertPlaceholder(attempt + 1);
+                        }
+
+                    console.error('api_set_mode (insert placeholder) err:', err);
+                    return res.status(500).json({ error: 'db_error', detail: err.message });
+                }
+
+                createdToolId = this.lastID;
+
+                // Insert mode
+                db.run("INSERT INTO modes (mode, tool_id, user_id) VALUES (?, ?, ?)",
+                    [mode, createdToolId, user_id],
+                    function(err2) {
+                        if (err2) {
+                            console.error('api_set_mode (insert mode) err:', err2);
+                            return res.status(500).json({ error: 'db_error', detail: err2.message });
+                        }
+
+                        return res.json({
+                            ok: true,
+                            mode_id: this.lastID,
+                            mode,
+                            tool_id: createdToolId,
+                            category,
+                            placeholderUid
+                        });
+                        }
+                    );
                     }
-                    return res.json({ ok:true, mode_id: this.lastID, mode, tool_id: createdToolId, category });
-            });
-        });
-        return;
+                );
+
+            })(1);
     }
 
     // default (retirar/devolver/idle) - original behavior

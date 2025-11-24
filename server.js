@@ -90,15 +90,6 @@ app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'front.html'));
 });
 
-// ===== middleware API key =====
-const API_KEY = process.env.API_KEY || 'dev_local_key';
-function requireApiKey(req, res, next) {
-    const key = req.header('x-api-key') || req.query.api_key;
-    if (!key || key !== API_KEY) {
-        return res.status(401).json({ error: 'invalid_api_key' });
-    }
-    next();
-}
 
 // --- CONFIGURAÇÃO DO BANCO DE DADOS ---
 const db = new sqlite3.Database('./ferramentas.db', (err) => {

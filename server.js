@@ -10,11 +10,69 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(__dirname));
 
+// API key middleware (coloque após express.json)
+const API_KEY = process.env.API_KEY || 'dev_local_key';
+function requireApiKey(req, res, next) {
+    const key = req.header('x-api-key') || req.query.api_key;
+    if (!key || key !== API_KEY) return res.status(401).json({ error: 'invalid_api_key' });
+    next();
+}
+// --- DATABASE: Postgres if DATABASE_URL set, otherwise SQLite (fallback) ---
+let db;      // will be sqlite db object or wrapper for pg
+let usingPg = false;
+
+if (process.env.DATABASE_URL) {
+    // Postgres setup (Render internal DB)
+    const { Pool } = require('pg');
+    const pool = new Pool({
+        connectionString: process.env.DATABASE_URL,
+        ssl: { rejectUnauthorized: false }
+    });
+    usingPg = true;
+    // minimal wrapper to reuse some sqlite style calls in existing code
+    db = {
+        query: (text, params) => pool.query(text, params),
+        get: (sql, params, cb) => {
+            pool.query(sql, params)
+                .then(r => cb(null, r.rows[0] || null))
+                .catch(e => cb(e));
+        },
+        all: (sql, params, cb) => {
+            pool.query(sql, params)
+                .then(r => cb(null, r.rows || []))
+                .catch(e => cb(e));
+        },
+        run: (sql, params, cb) => {
+            // for INSERT with RETURNING id, you can read rows[0].id
+            pool.query(sql, params)
+                .then(r => cb && cb(null, r))
+                .catch(e => cb && cb(e));
+        }
+    };
+    } else {
+    // SQLite fallback
+    const sqlite3 = require('sqlite3').verbose();
+    db = new sqlite3.Database('./ferramentas.db', (err) => {
+        if (err) console.error('SQLite open error', err);
+        else console.log('SQLite DB opened');
+    });
+}
+
 // --- CONFIGURAÇÃO DO SERVIDOR ---
 const PORT = process.env.PORT || 3000;
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'front.html'));
 });
+
+// ===== middleware API key =====
+const API_KEY = process.env.API_KEY || 'dev_local_key';
+function requireApiKey(req, res, next) {
+    const key = req.header('x-api-key') || req.query.api_key;
+    if (!key || key !== API_KEY) {
+        return res.status(401).json({ error: 'invalid_api_key' });
+    }
+    next();
+}
 
 // --- CONFIGURAÇÃO DO BANCO DE DADOS ---
 const db = new sqlite3.Database('./ferramentas.db', (err) => {
@@ -46,6 +104,17 @@ const db = new sqlite3.Database('./ferramentas.db', (err) => {
                 timestamp DATETIME DEFAULT (datetime('now', '-3 hours')),
                 FOREIGN KEY(tool_id) REFERENCES tools(id),
                 FOREIGN KEY(user_id) REFERENCES users(id)
+            );
+            CREATE TABLE IF NOT EXISTS categories (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT UNIQUE
+            );
+            CREATE TABLE IF NOT EXISTS modes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                mode TEXT,
+                tool_id INTEGER,
+                user_id INTEGER,
+                created_at DATETIME DEFAULT (datetime('now'))
             );
         `, (err) => {
             if (err) console.error("Erro ao criar tabelas", err);
@@ -211,6 +280,7 @@ app.get('/arduino/status', (req, res) => {
 // --- API ACTION ---
 // ===============================================================
 app.get('/api_action', (req, res) => {
+    console.log(" /api_action", req.query);
     res.setHeader("Content-Type", "text/plain");
 
     const uid = (req.query.uid || "").trim().toUpperCase();
@@ -274,6 +344,83 @@ app.get('/api_action', (req, res) => {
     }
 });
 
+// ===== NOVAS ROTAS para comunicação com ESP32 (JSON + x-api-key) =====
+app.post('/api/register', requireApiKey, (req, res) => {
+  // payload esperado: { uid, code, timestamp, state, meta }
+    const { uid, code, timestamp, state, meta } = req.body || {};
+    if (!uid || !code || !timestamp || !state) {
+        return res.status(400).json({ success:false, error:'missing_fields' });
+    }
+    // se já existir UID, retorna info; caso não exista cria
+    db.get('SELECT id FROM tools WHERE uid = ?', [uid], (err, row) => {
+        if (err) return res.status(500).json({ success:false, error:'db' });
+        if (row) {
+        // atualizar código/nome se necessário
+            db.run('UPDATE tools SET code = COALESCE(code, ?), name = COALESCE(name, ?) WHERE id = ?', [code, `FERR-${code}`, row.id]);
+            // log
+            db.run('INSERT INTO logs (tool_id, user_id, action, timestamp) VALUES (?, ?, ?, ?)', [row.id, null, 'cadastrado_via_esp', timestamp]);
+            return res.json({ success:true, message:'already_exists', id: row.id });
+        }
+        // inserir novo registro
+        if (!usingPg) {
+            db.run('INSERT INTO tools (uid, code, name, status) VALUES (?, ?, ?, ?)', [uid, code, name, status], function(err) {
+                if (err) { /* handle */ }
+                const id = this.lastID;
+                // rest of logic
+            });
+        } else {
+            db.run('INSERT INTO tools (uid, code, name, status) VALUES ($1, $2, $3, $4) RETURNING id', [uid, code, name, status], (err, res) => {
+                if (err) { /* handle */ }
+                const id = res && res.rows && res.rows[0] ? res.rows[0].id : null;
+                // rest of logic (same as sqlite branch)
+            });
+        }
+    });
+});
+
+app.post('/api/return', requireApiKey, (req, res) => {
+    // payload esperado: { uid, code, timestamp, state }
+    const { uid, code, timestamp } = req.body || {};
+    if (!uid || !timestamp) return res.status(400).json({ success:false, error:'missing_fields' });
+
+    db.get('SELECT id FROM tools WHERE uid = ?', [uid], (err, row) => {
+        if (err) return res.status(500).json({ success:false, error:'db' });
+        if (!row) return res.status(404).json({ success:false, error:'not_found' });
+
+        db.run('UPDATE tools SET status = ? WHERE id = ?', ['Disponível', row.id], (err2) => {
+            if (err2) return res.status(500).json({ success:false, error:'update_failed' });
+            db.run('INSERT INTO logs (tool_id, user_id, action, timestamp) VALUES (?, ?, ?, ?)', [row.id, null, 'devolucao_via_esp', timestamp]);
+            return res.json({ success:true, message: 'returned' });
+        });
+    });
+});
+
+app.post('/api/event', requireApiKey, (req, res) => {
+    // leitura bruta/log: { uid, code, timestamp, state, raw }
+    const { uid, code, timestamp, state, raw } = req.body || {};
+    if (!uid || !timestamp) return res.status(400).json({ success:false, error:'missing_fields' });
+
+    db.get('SELECT id FROM tools WHERE uid = ?', [uid], (err, row) => {
+        if (err) return res.status(500).json({ success:false, error:'db' });
+        const tool_id = row ? row.id : null;
+        db.run('INSERT INTO logs (tool_id, user_id, action, borrower_name, borrower_class, timestamp) VALUES (?, ?, ?, ?, ?, ?)', 
+            [tool_id, null, (state || 'leitura'), raw && raw.user ? raw.user : null, raw && raw.class ? raw.class : null, timestamp],
+            function(logErr) {
+                if (logErr) console.error('log insert err', logErr);
+                // também cria ferramenta-placeholder caso não exista (opcional)
+                if (!row) {
+                    db.run('INSERT INTO tools (uid, name, category, status) VALUES (?, ?, ?, ?)', [uid, raw && raw.name ? raw.name : '', 'N/D', 'placeholder'], function(insErr) {
+                        if (insErr) console.error('create placeholder err', insErr);
+                    });
+                }
+                return res.json({ success:true, message:'logged' });
+            });
+    });
+});
+
+app.get('/health', (req,res) => res.json({ ok: true, ts: new Date().toISOString() }));
+
+
 // --- GET /api_categories  -> retorna lista de categorias ---
 app.get('/api_categories', (req, res) => {
     db.all("SELECT id, name FROM categories ORDER BY name COLLATE NOCASE", [], (err, rows) => {
@@ -299,14 +446,24 @@ app.post('/api_categories', express.json(), (req, res) => {
     });
 });
 
-// --- PUT /api_tools/:id -> atualizar nome / categoria / status de uma ferramenta ---
+// PUT /api_tools/:id -> atualiza name, category e/ou status (unificado)
 app.put('/api_tools/:id', express.json(), (req, res) => {
     const id = parseInt(req.params.id);
-    const name = ('name' in req.body) ? req.body.name.trim() : null;
-    const category = ('category' in req.body) ? req.body.category : null;
+    console.log(" PUT /api_tools/:id chamado -> id:", id, "body:", req.body);
+
+    if (!id || isNaN(id)) return res.status(400).json({ error: 'invalid_id' });
+
+    // pegar campos (aceita atualização parcial)
+    const name = ('name' in req.body) ? (req.body.name || '').trim() : null;
+    const category = ('category' in req.body) ? (req.body.category || '').trim() : null;
     const status = ('status' in req.body) ? req.body.status : null;
 
-  // montar query dinamicamente
+    // Se foi chamado pelo front para salvar placeholder, queremos pelo menos name+category
+    // Mas mantemos flexibilidade: se vier apenas uma atualização parcial, aplicamos.
+    // Se vc deseja impedir atualizações parciais, descomente a validação abaixo:
+    // if (!name || !category) return res.status(400).json({ error: 'missing_fields' });
+
+    // montar query dinamicamente conforme campos presentes
     const sets = [];
     const params = [];
 
@@ -314,20 +471,29 @@ app.put('/api_tools/:id', express.json(), (req, res) => {
     if (category !== null) { sets.push("category = ?"); params.push(category); }
     if (status !== null) { sets.push("status = ?"); params.push(status); }
 
-    if (sets.length === 0) return res.status(400).json({ error: 'nothing_to_update' });
+    if (sets.length === 0) {
+        return res.status(400).json({ error: 'nothing_to_update' });
+    }
 
     params.push(id);
     const sql = `UPDATE tools SET ${sets.join(', ')} WHERE id = ?`;
     db.run(sql, params, function(err) {
-        if (err) { console.error(err); return res.status(500).json({ error: 'update_failed' }); }
-        res.json({ success: true, changes: this.changes });
+        if (err) {
+            console.error("api_tools PUT err:", err);
+            return res.status(500).json({ error: 'update_failed' });
+        }
+        if (this.changes === 0) return res.status(404).json({ error: 'not_found' });
+        console.log("api_tools PUT ok -> changes:", this.changes);
+        return res.json({ success: true, changes: this.changes });
     });
 });
+
 
 // Retorna o último placeholder criado pelo Arduino (name LIKE 'Ferramenta-%' ou category='N/D')
 // GET /api_last_placeholder
 app.get('/api_last_placeholder', (req, res) => {
-  const sql = `
+    console.log(" /api_last_placeholder chamado");
+    const sql = `
     SELECT 
         m.id AS mode_id,
         t.id AS tool_id,
@@ -369,6 +535,7 @@ app.get('/api_categories', (req, res) => {
 
 // GET /api_register_tag?uid=XXXX&mode_id=NN
 app.get('/api_register_tag', (req, res) => {
+    console.log(" /api_register_tag UID recebido:", req.query.uid);
     const uid = (req.query.uid || '').trim();
     const mode_id = req.query.mode_id ? parseInt(req.query.mode_id) : null;
 
@@ -439,29 +606,9 @@ app.get('/api_register_tag', (req, res) => {
 
 
 
-
-// --- PUT /api_tools/:id -> atualiza name e category (usado pelo front para salvar placeholder) ---
-app.put('/api_tools/:id', express.json(), (req, res) => {
-    const id = parseInt(req.params.id);
-    if (!id) return res.status(400).json({ error: 'invalid_id' });
-
-    const name = (req.body.name || '').trim();
-    const category = (req.body.category || '').trim();
-
-    if (!name || !category) return res.status(400).json({ error: 'missing_fields' });
-
-    db.run("UPDATE tools SET name = ?, category = ? WHERE id = ?", [name, category, id], function(err) {
-        if (err) {
-        console.error("api_tools PUT err:", err);
-        return res.status(500).json({ error: 'update_failed' });
-        }
-        if (this.changes === 0) return res.status(404).json({ error: 'not_found' });
-        return res.json({ success: true, changes: this.changes });
-    });
-});
-
 // POST /api_set_mode
 app.post('/api_set_mode', express.json(), (req, res) => {
+    console.log("📡 /api_set_mode chamado:", req.body);
     const mode = (req.body.mode || '').trim();
     const tool_id_body = req.body.tool_id ? parseInt(req.body.tool_id) : null;
     const user_id = req.body.user_id ? parseInt(req.body.user_id) : null;

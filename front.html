@@ -520,7 +520,7 @@
 
 <script>
 // --- CONFIGURAÇÃO DE CONEXÃO COM O BACKEND ---
-    const API_URL = "https://safe-tools.onrender.com"; 
+    const API_URL = "https://safe-tools.onrender.com";
     let currentUser = null; 
     let chartStatusInstance = null;
     let chartCategoryInstance = null;
@@ -570,7 +570,7 @@
         const prevText = loginBtn.textContent;
         loginBtn.textContent = 'Entrando...';
 
-        fetch('/login', {
+        fetch(`${API_URL}/login`, { 
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ username, password })
@@ -626,7 +626,7 @@
 
         try {
             // Busca as ferramentas reais do banco
-            const res = await fetch(`${API_URL}/tools`);
+            const res = await fetch(`${API_URL}/tool`);
             const tools = await res.json();
 
             // Conta quantas por status e categoria
@@ -901,9 +901,12 @@
         }
 
         try {
-            const res = await fetch('/users/register', {
+            const res = await fetch(`${API_URL}/users/register`, {
                 method: 'POST',
-                headers: {'Content-Type': 'application/json'},
+                headers: {
+                    'Content-Type': 'application/json',
+                    // 'x-api-key': 'SUA_CHAVE_API_AQUI' // descomente se seu endpoint exigir API key
+                },
                 body: JSON.stringify({ username: user, password: pass })
             });
             const data = await res.json();
@@ -960,7 +963,7 @@ async function loadCategories() {
 let currentScanModeId = null;
 
 async function startScan() {
-    const sel = document.getElementById('new-tool-category'); // ajuste ID se diferente
+    const sel = document.getElementById('new-tool-category');
     const category = sel ? sel.value : '';
 
     document.getElementById('scan-status').textContent = 'Aguardando tag...';
@@ -969,23 +972,28 @@ async function startScan() {
     try {
         const res = await fetch(`${API_URL}/api_set_mode`, {
             method: 'POST',
-            headers: {'Content-Type': 'application/json'},
+            headers: {
+                'Content-Type': 'application/json',
+                'x-api-key': 'SUA_CHAVE_API_AQUI'
+            },
             body: JSON.stringify({ mode: 'cadastrar', category })
-        });
+            });
         const json = await res.json();
-        if (!json.ok) {
-            alert('Erro ao iniciar escaneamento: ' + (json.error || 'unknown'));
+        if (!json.ok && !json.success) {
+            alert('Erro ao iniciar escaneamento: ' + (json.error || JSON.stringify(json)));
             document.getElementById('start-scan-btn').disabled = false;
             document.getElementById('scan-status').textContent = 'Erro iniciar';
             return;
-    }
+        }
 
-    // Guarda o mode_id para uso (opcional)
-        currentScanModeId = json.mode_id || null;
+            // GUARDE o tool_id do placeholder para usar quando salvar
+        currentPlaceholderId = json.tool_id || json.toolId || json.id || null;
+        currentScanModeId = json.mode_id || json.modeId || null;
 
-    // começa polling por placeholder (pode já existir)
+            // começa polling por placeholder
         pollForPlaceholder();
         scanTimer = setInterval(pollForPlaceholder, scanPollingInterval);
+        scanStartTime = Date.now();
     } catch (err) {
         console.error('startScan error', err);
         alert('Erro de rede ao iniciar escaneamento.');
@@ -997,6 +1005,7 @@ async function startScan() {
 
 
 
+
 // Poll: pede ao servidor o último placeholder criado (por Arduino)
 // Implementação do endpoint no server deve buscar ferramenta criada com nome padrão ou category 'N/D'
 async function pollForPlaceholder() {
@@ -1004,28 +1013,33 @@ async function pollForPlaceholder() {
         const res = await fetch(`${API_URL}/api_last_placeholder`);
         const json = await res.json();
         if (!json.found) {
-        // nada criado ainda
+            if (scanStartTime && (Date.now() - scanStartTime > scanTimeoutMs)) {
+                clearInterval(scanTimer);
+                scanTimer = null;
+                document.getElementById('start-scan-btn').disabled = false;
+                document.getElementById('scan-status').textContent = 'Timeout - tente novamente';
+            }
             return;
         }
-        const ph = json.placeholder;
-        // se o placeholder já tem uid preenchido, auto preencher o form
-        if (ph && ph.uid) {
-        // preencher campo UID no form
+        const ph = json.placeholder || json;
+        // GUARDE id do placeholder (caso backend tenha retornado)
+        currentPlaceholderId = ph.tool_id || ph.toolId || ph.id || currentPlaceholderId;
+
+        // preencher campo UID no form se existir
+        if (ph.uid) {
             const uidField = document.getElementById('new-tool-uid');
             if (uidField) uidField.value = ph.uid;
 
-            // preencher nome com padrão (opcional)
-            const nameField = document.getElementById('new-tool-name');
-            if (nameField) nameField.value = ph.name || '';
-
-            // se quiser preencher code:
-            // const codeField = document.getElementById('new-tool-code'); // se existir
-            // if (codeField) codeField.value = ph.code || '';
-
-            // para finalizar polling
-            clearInterval(scanTimer);
+        // parar polling
+            if (scanTimer) { clearInterval(scanTimer); scanTimer = null; }
             document.getElementById('start-scan-btn').disabled = false;
             document.getElementById('scan-status').textContent = 'Tag detectada';
+        }
+
+        // preencher nome sugerido se existir
+        if (ph.name) {
+            const nameField = document.getElementById('new-tool-name');
+            if (nameField) nameField.value = ph.name;
         }
     } catch (err) {
         console.error('pollForPlaceholder err', err);
@@ -1034,15 +1048,20 @@ async function pollForPlaceholder() {
 
 
 
+
 // Salva (atualiza) o placeholder criado pelo Arduino
 async function saveRegisteredTool() {
     const id = currentPlaceholderId;
-    const uid = document.getElementById('new-tool-uid').value.trim();
-    const name = document.getElementById('new-tool-name').value.trim();
-    const category = document.getElementById('new-tool-category').value.trim();
+    const uid = (document.getElementById('new-tool-uid').value || '').trim();
+    const name = (document.getElementById('new-tool-name').value || '').trim();
+    const category = (document.getElementById('new-tool-category').value || '').trim();
 
-    if (!id || !uid) {
-        alert('Nenhuma tag registrada. Inicie o escaneamento e aproxime a tag primeiro.');
+    if (!id) {
+        alert('Nenhum placeholder ativo. Inicie o escaneamento antes de salvar.');
+        return;
+    }
+    if (!uid) {
+        alert('UID não detectado. Aproxime a tag again.');
         return;
     }
     if (!name || !category) {
@@ -1052,28 +1071,27 @@ async function saveRegisteredTool() {
 
     try {
         const res = await fetch(`${API_URL}/api_tools/${id}`, {
-        method: 'PUT',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ name, category })
+            method: 'PUT',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ name, category })
         });
         const json = await res.json();
-        if (json && json.success) {
-        alert('Ferramenta cadastrada com sucesso.');
-        // limpa campos
-        document.getElementById('new-tool-uid').value = '';
-        document.getElementById('new-tool-name').value = '';
-        document.getElementById('new-tool-category').value = '';
-        currentPlaceholderId = null;
-        loadTools(); // atualiza catálogo
-        if (document.getElementById('dashboard-section').classList.contains('active')) loadDashboard();
+        if (json && (json.success || json.ok)) {
+            alert('Ferramenta cadastrada com sucesso.');
+            document.getElementById('new-tool-uid').value = '';
+            document.getElementById('new-tool-name').value = '';
+            document.getElementById('new-tool-category').value = '';
+            currentPlaceholderId = null;
+            loadTools();
         } else {
-        alert('Erro ao salvar: ' + (json.error || JSON.stringify(json)));
+            alert('Erro ao salvar: ' + (json.error || JSON.stringify(json)));
         }
     } catch (err) {
         console.error(err);
         alert('Erro ao salvar ferramenta.');
     }
 }
+
 
 // quando a página carrega, já busca categorias
 document.addEventListener('DOMContentLoaded', () => {

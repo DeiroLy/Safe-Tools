@@ -79,26 +79,13 @@ if (process.env.DATABASE_URL) {
     // SQLite fallback
     const sqlite3 = require('sqlite3').verbose();
     db = new sqlite3.Database('./ferramentas.db', (err) => {
-        if (err) console.error('SQLite open error', err);
-        else console.log('SQLite DB opened');
-    });
-}
+        if (err) {
+            console.error('SQLite open error', err);
+        } else {
+            console.log('SQLite DB opened');
 
-// --- CONFIGURAÇÃO DO SERVIDOR ---
-const PORT = process.env.PORT || 3000;
-app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'front.html'));
-});
-
-
-// --- CONFIGURAÇÃO DO BANCO DE DADOS ---
-const db = new sqlite3.Database('./ferramentas.db', (err) => {
-    if (err) {
-        console.error("Erro ao abrir o banco de dados", err.message);
-    } else {
-        console.log("Conectado ao banco de dados SQLite.");
-
-        db.exec(`
+            // Ensure schema exists (migrations for SQLite fallback)
+            db.exec(`
             CREATE TABLE IF NOT EXISTS users (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 username TEXT UNIQUE,
@@ -134,29 +121,40 @@ const db = new sqlite3.Database('./ferramentas.db', (err) => {
                 created_at DATETIME DEFAULT (datetime('now'))
             );
         `, (err) => {
-            if (err) console.error("Erro ao criar tabelas", err);
+                if (err) console.error("Erro ao criar tabelas", err);
 
-            // Cria admin padrão com senha criptografada
-            const adminUser = 'admin';
-            const adminPass = '1234';
-            db.get(`SELECT id, password FROM users WHERE username = ?`, [adminUser], (err, row) => {
-                if (err) console.error("Erro ao verificar admin:", err);
-                else if (!row) {
-                    const hash = bcrypt.hashSync(adminPass, 10);
-                    db.run(`INSERT INTO users (username, password) VALUES (?, ?)`, [adminUser, hash]);
-                    console.log("Usuário admin criado.");
-                } else {
-                    const currentPass = row.password || '';
-                    if (!currentPass.startsWith('$2a$')) {
+                // Cria admin padrão com senha criptografada
+                const adminUser = 'admin';
+                const adminPass = '1234';
+                db.get(`SELECT id, password FROM users WHERE username = ?`, [adminUser], (err, row) => {
+                    if (err) console.error("Erro ao verificar admin:", err);
+                    else if (!row) {
                         const hash = bcrypt.hashSync(adminPass, 10);
-                        db.run(`UPDATE users SET password = ? WHERE id = ?`, [hash, row.id]);
-                        console.log("Senha do admin atualizada para hash.");
+                        db.run(`INSERT INTO users (username, password) VALUES (?, ?)`, [adminUser, hash]);
+                        console.log("Usuário admin criado.");
+                    } else {
+                        const currentPass = row.password || '';
+                        if (!currentPass.startsWith('$2a$')) {
+                            const hash = bcrypt.hashSync(adminPass, 10);
+                            db.run(`UPDATE users SET password = ? WHERE id = ?`, [hash, row.id]);
+                            console.log("Senha do admin atualizada para hash.");
+                        }
                     }
-                }
+                });
             });
-        });
-    }
+        }
+    });
+}
+
+// --- CONFIGURAÇÃO DO SERVIDOR ---
+const PORT = process.env.PORT || 3000;
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'front.html'));
 });
+
+
+// Schema initialization is handled in the initial DB setup above.
+// (Duplicate block removed.)
 
 // --- ROTAS DE USUÁRIOS ---
 

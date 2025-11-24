@@ -739,6 +739,95 @@ app.post('/api_mode_complete', express.json(), (req, res) => {
     return res.json({ ok: true });
 });
 
+// ============================================================
+// ===============  ROTAS NOVAS PARA A ESP32  =================
+// ============================================================
+
+// --- Middleware simples de API key (igual da ESP) ---
+function requireApiKey(req, res, next) {
+    const key = req.header("x-api-key");
+    if (!key || key !== process.env.API_KEY) {
+        return res.status(401).json({ error: "invalid_api_key" });
+    }
+    next();
+}
+
+// --- POST /api/event  (Leitura / Log bruto da ESP) ---
+app.post('/api/event', requireApiKey, (req, res) => {
+    const { uid, code, timestamp, state, meta } = req.body || {};
+
+    if (!uid) return res.status(400).json({ error: "missing_uid" });
+
+    console.log("📩 EVENT RECEIVED:", req.body);
+
+    db.run(
+        "INSERT INTO logs (tool_id, user_id, action, borrower_name, borrower_class) VALUES (?, ?, ?, ?, ?)",
+        [null, 1, state || "evento", null, null],
+        (err) => {
+            if (err) return res.status(500).json({ error: "db_error" });
+            return res.status(201).json({ success: true });
+        }
+    );
+});
+
+// --- POST /api/register (Cadastro) ---
+app.post('/api/register', requireApiKey, (req, res) => {
+    const { uid, code, timestamp, state } = req.body || {};
+
+    if (!uid) return res.status(400).json({ error: "missing_uid" });
+
+    db.get("SELECT id FROM tools WHERE uid = ?", [uid], (err, row) => {
+        if (err) return res.status(500).json({ error: "db_error" });
+
+        if (row)
+            return res.status(409).json({ error: "uid_exists", id: row.id });
+
+        db.run(
+            "INSERT INTO tools (uid, name, category, status) VALUES (?, ?, ?, ?)",
+            [uid, code || `Ferramenta-${uid}`, "N/D", "Disponível"],
+            function (err2) {
+                if (err2)
+                    return res.status(500).json({ error: "db_insert_error" });
+
+                db.run(
+                    "INSERT INTO logs (tool_id, user_id, action) VALUES (?, ?, ?)",
+                    [this.lastID, 1, "cadastrado"]
+                );
+
+                res.status(201).json({ success: true });
+            }
+        );
+    });
+});
+
+// --- POST /api/return (Devolução) ---
+app.post('/api/return', requireApiKey, (req, res) => {
+    const { uid, code, timestamp, state } = req.body || {};
+
+    if (!uid) return res.status(400).json({ error: "missing_uid" });
+
+    db.get("SELECT id FROM tools WHERE uid = ?", [uid], (err, tool) => {
+        if (err) return res.status(500).json({ error: "db_error" });
+        if (!tool)
+            return res.status(404).json({ error: "tool_not_found" });
+
+        db.run(
+            "UPDATE tools SET status = 'Disponível' WHERE id = ?",
+            [tool.id],
+            (err2) => {
+                if (err2)
+                    return res.status(500).json({ error: "db_error" });
+
+                db.run(
+                    "INSERT INTO logs (tool_id, user_id, action) VALUES (?, ?, ?)",
+                    [tool.id, 1, "devolucao"]
+                );
+
+                return res.status(200).json({ success: true });
+            }
+        );
+    });
+});
 
 
 // --- INICIAR SERVIDOR ---

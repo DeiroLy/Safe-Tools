@@ -15,22 +15,33 @@ const API_KEY = process.env.API_KEY || 'dev_local_key';
 function requireApiKey(req, res, next) {
     const key = req.header('x-api-key') || req.query.api_key;
     if (!key || key !== API_KEY) return res.status(401).json({ error: 'invalid_api_key' });
-    next();
+    next(); 
 }
-// Rota para logs / leitura bruta
+
+// ROTAS DE EVENTOS (leituras brutas da ESP)
 app.post('/api/event', requireApiKey, async (req, res) => {
     try {
         const { uid, code, timestamp, state, meta } = req.body;
-        // exemplo simples: grave no DB ou na tabela logs
-        // se estiver usando pg/pool:
-        // await pool.query('INSERT INTO logs (uid, code, state, timestamp, meta) VALUES ($1,$2,$3,$4,$5)', [uid,code,state,timestamp, JSON.stringify(meta)]);
-        console.log('EVENT RECEIVED', req.body);
+
+        console.log("📩 EVENT RECEIVED:", req.body);
+
+        // Se estiver usando SQLite:
+        // db.run("INSERT INTO logs (uid, code, state, timestamp, meta) VALUES (?, ?, ?, ?, ?)",
+        //   [uid, code, state, timestamp, JSON.stringify(meta)], 
+        //   (err) => {
+        //       if (err) { console.error(err); return res.status(500).json({ error: "db_error" }); }
+        //       return res.status(201).json({ success: true });
+        // });
+
+        // TEMPORÁRIO: apenas responde 201 OK
         return res.status(201).json({ success: true, received: req.body });
+
     } catch (err) {
-        console.error('api/event error', err);
-        return res.status(500).json({ error: 'server_error' });
+        console.error(" EVENT ERROR:", err);
+        return res.status(500).json({ error: "server_error" });
     }
 });
+
 
 // --- DATABASE: Postgres if DATABASE_URL set, otherwise SQLite (fallback) ---
 let db;      // will be sqlite db object or wrapper for pg

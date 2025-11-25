@@ -458,7 +458,17 @@
 
         <div id="catalog-section" class="content-section widget-card">
             <h2>Catálogo de Ferramentas</h2>
-            <div id="tool-list"></div>
+                        <div id="tool-list"></div>
+                        <!-- Tabelas públicas rápidas (populadas pelo script fetchList / fetchLogs) -->
+                        <table>
+                            <thead><tr><th>ID</th><th>UID</th><th>Nome</th><th>Cat</th><th>Status</th></tr></thead>
+                            <tbody id="tools-list"></tbody>
+                        </table>
+
+                        <table style="margin-top:12px;">
+                            <thead><tr><th>ID</th><th>Tool</th><th>Ação</th><th>Quem</th><th>Quando</th></tr></thead>
+                            <tbody id="logs-list"></tbody>
+                        </table>
         </div>
 
         <div id="cadastro-section" class="content-section widget-card">
@@ -1143,6 +1153,68 @@ async function startDevolver() {
 
 
 
+</script>
+
+<!-- trecho JS a adicionar no front.html -->
+<script>
+async function fetchList() {
+    try {
+        const res = await fetch(`${API_URL}/public/list`);
+        if (!res.ok) throw new Error('Erro fetch list');
+        const data = await res.json();
+        renderList(data.tools || []);
+    } catch (err) {
+        console.error('fetchList error', err);
+    }
+}
+
+async function fetchLogs() {
+    try {
+        const res = await fetch(`${API_URL}/public/logs`);
+        if (!res.ok) throw new Error('Erro fetch logs');
+        const data = await res.json();
+        renderLogs(data.logs || []);
+    } catch (err) {
+        console.error('fetchLogs error', err);
+    }
+}
+
+// Exemplo simples de renderização (modifique CSS/markup conforme seu HTML)
+function renderList(tools) {
+    const el = document.getElementById('tools-list');
+    if (!el) return;
+    el.innerHTML = tools.map(t => `
+        <tr>
+            <td>${t.id}</td>
+            <td>${t.uid}</td>
+            <td>${t.name}</td>
+            <td>${t.category || ''}</td>
+            <td>${t.status}</td>
+        </tr>`).join('');
+}
+
+function renderLogs(logs) {
+    const el = document.getElementById('logs-list');
+    if (!el) return;
+    el.innerHTML = logs.map(l => `
+        <tr>
+            <td>${l.id}</td>
+            <td>${l.tool_id || ''}</td>
+            <td>${l.action}</td>
+            <td>${l.borrower_name || ''}</td>
+            <td>${l.timestamp}</td>
+        </tr>`).join('');
+}
+
+// Polling leve para atualizar a lista e logs
+setInterval(() => {
+    fetchList();
+    fetchLogs();
+}, 8000); // 8s - ajustável
+
+// carregar inicialmente
+fetchList();
+fetchLogs();
 </script>
 
 </body>

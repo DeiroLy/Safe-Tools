@@ -359,79 +359,7 @@ app.get('/api_action', (req, res) => {
     }
 });
 
-// ===== NOVAS ROTAS para comunicação com ESP32 (JSON + x-api-key) =====
-app.post('/api/register', requireApiKey, (req, res) => {
-  // payload esperado: { uid, code, timestamp, state, meta }
-    const { uid, code, timestamp, state, meta } = req.body || {};
-    if (!uid || !code || !timestamp || !state) {
-        return res.status(400).json({ success:false, error:'missing_fields' });
-    }
-    // se já existir UID, retorna info; caso não exista cria
-    db.get('SELECT id FROM tools WHERE uid = ?', [uid], (err, row) => {
-        if (err) return res.status(500).json({ success:false, error:'db' });
-        if (row) {
-        // atualizar código/nome se necessário
-            db.run('UPDATE tools SET code = COALESCE(code, ?), name = COALESCE(name, ?) WHERE id = ?', [code, `FERR-${code}`, row.id]);
-            // log
-            db.run('INSERT INTO logs (tool_id, user_id, action, timestamp) VALUES (?, ?, ?, ?)', [row.id, null, 'cadastrado_via_esp', timestamp]);
-            return res.json({ success:true, message:'already_exists', id: row.id });
-        }
-        // inserir novo registro
-        if (!usingPg) {
-            db.run('INSERT INTO tools (uid, code, name, status) VALUES (?, ?, ?, ?)', [uid, code, name, status], function(err) {
-                if (err) { /* handle */ }
-                const id = this.lastID;
-                // rest of logic
-            });
-        } else {
-            db.run('INSERT INTO tools (uid, code, name, status) VALUES ($1, $2, $3, $4) RETURNING id', [uid, code, name, status], (err, res) => {
-                if (err) { /* handle */ }
-                const id = res && res.rows && res.rows[0] ? res.rows[0].id : null;
-                // rest of logic (same as sqlite branch)
-            });
-        }
-    });
-});
-
-app.post('/api/return', requireApiKey, (req, res) => {
-    // payload esperado: { uid, code, timestamp, state }
-    const { uid, code, timestamp } = req.body || {};
-    if (!uid || !timestamp) return res.status(400).json({ success:false, error:'missing_fields' });
-
-    db.get('SELECT id FROM tools WHERE uid = ?', [uid], (err, row) => {
-        if (err) return res.status(500).json({ success:false, error:'db' });
-        if (!row) return res.status(404).json({ success:false, error:'not_found' });
-
-        db.run('UPDATE tools SET status = ? WHERE id = ?', ['Disponível', row.id], (err2) => {
-            if (err2) return res.status(500).json({ success:false, error:'update_failed' });
-            db.run('INSERT INTO logs (tool_id, user_id, action, timestamp) VALUES (?, ?, ?, ?)', [row.id, null, 'devolucao_via_esp', timestamp]);
-            return res.json({ success:true, message: 'returned' });
-        });
-    });
-});
-
-app.post('/api/event', requireApiKey, (req, res) => {
-    // leitura bruta/log: { uid, code, timestamp, state, raw }
-    const { uid, code, timestamp, state, raw } = req.body || {};
-    if (!uid || !timestamp) return res.status(400).json({ success:false, error:'missing_fields' });
-
-    db.get('SELECT id FROM tools WHERE uid = ?', [uid], (err, row) => {
-        if (err) return res.status(500).json({ success:false, error:'db' });
-        const tool_id = row ? row.id : null;
-        db.run('INSERT INTO logs (tool_id, user_id, action, borrower_name, borrower_class, timestamp) VALUES (?, ?, ?, ?, ?, ?)', 
-            [tool_id, null, (state || 'leitura'), raw && raw.user ? raw.user : null, raw && raw.class ? raw.class : null, timestamp],
-            function(logErr) {
-                if (logErr) console.error('log insert err', logErr);
-                // também cria ferramenta-placeholder caso não exista (opcional)
-                if (!row) {
-                    db.run('INSERT INTO tools (uid, name, category, status) VALUES (?, ?, ?, ?)', [uid, raw && raw.name ? raw.name : '', 'N/D', 'placeholder'], function(insErr) {
-                        if (insErr) console.error('create placeholder err', insErr);
-                    });
-                }
-                return res.json({ success:true, message:'logged' });
-            });
-    });
-});
+// (Removed an earlier duplicate/unfinished set of ESP routes here.)
 
 app.get('/health', (req,res) => res.json({ ok: true, ts: new Date().toISOString() }));
 
@@ -732,14 +660,7 @@ app.post('/api_mode_complete', express.json(), (req, res) => {
 // ===============  ROTAS NOVAS PARA A ESP32  =================
 // ============================================================
 
-// --- Middleware simples de API key (igual da ESP) ---
-function requireApiKey(req, res, next) {
-    const key = req.header("x-api-key");
-    if (!key || key !== process.env.API_KEY) {
-        return res.status(401).json({ error: "invalid_api_key" });
-    }
-    next();
-}
+// Middleware de API key já declarado no topo; usar aquela definição.
 
 // --- POST /api/event  (Leitura / Log bruto da ESP) ---
 app.post('/api/event', requireApiKey, (req, res) => {
@@ -818,6 +739,30 @@ app.post('/api/return', requireApiKey, (req, res) => {
     });
 });
 
+// === ROTAS PÚBLICAS PARA O FRONTEND (não exigem x-api-key) ===
+
+// Lista de ferramentas (usada pelo frontend)
+app.get('/public/list', (req, res) => {
+    db.all("SELECT id, uid, name, category, status FROM tools ORDER BY id DESC LIMIT 100", [], (err, rows) => {
+        if (err) {
+        console.error("public/list db error:", err);
+        return res.status(500).json({ error: "db_error" });
+        }
+        res.json({ tools: rows });
+    });
+    });
+
+    // Logs / histórico (usado pelo frontend)
+    app.get('/public/logs', (req, res) => {
+    // Ajuste a query conforme sua tabela logs (timestamp, action, borrower_name, etc)
+    db.all("SELECT id, tool_id, user_id, action, borrower_name, borrower_class, timestamp FROM logs ORDER BY timestamp DESC LIMIT 200", [], (err, rows) => {
+        if (err) {
+        console.error("public/logs db error:", err);
+        return res.status(500).json({ error: "db_error" });
+        }
+        res.json({ logs: rows });
+    });
+});
 
 // --- INICIAR SERVIDOR ---
 app.listen(PORT, () => {
